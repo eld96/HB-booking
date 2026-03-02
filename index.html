@@ -1297,13 +1297,34 @@ function submit(){
     participants: S_participants,
     phone:      (document.getElementById('phone-in').value||'').trim(),
   };
+
   document.getElementById('ok-card').innerHTML=`
     <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${data.room_name}</div></div></div>
     <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
     <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>
     <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${data.participants}</div></div></div>`;
-  if(tg) tg.sendData(JSON.stringify(data));
-  goView('ok'); haptic('success');
+
+  const payload = JSON.stringify(data);
+
+  // Проверяем что tg доступен
+  if(!tg){
+    alert('Ошибка: откройте через Telegram (кнопка внизу чата, не ссылка)');
+    return;
+  }
+
+  // Проверяем что sendData доступен (только в Reply Keyboard WebApp)
+  if(typeof tg.sendData !== 'function'){
+    alert('Ошибка: используйте кнопку снизу чата Telegram, не inline-кнопку');
+    return;
+  }
+
+  try {
+    tg.sendData(payload);
+    goView('ok');
+    haptic('success');
+  } catch(e) {
+    alert('Ошибка отправки: ' + e.message + '\n\nОткройте через кнопку внизу чата.');
+  }
 }
 
 function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
