@@ -1,0 +1,1228 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Hayot Bank — Бронирование</title>
+<style>
+:root{
+  --teal:   #1C5468;
+  --teal2:  #22637a;
+  --teal3:  #297390;
+  --teal4:  #154d60;
+  --teal5:  #0e3a4a;
+  --coral:  #E8593A;
+  --coral2: #ff6b4a;
+  --green:  #2ecc71;
+  --red:    #e74c3c;
+  --gold:   #f39c12;
+  --purple: #8e44ad;
+  --text:   #e8f4f8;
+  --muted:  #7abccc;
+  --border: rgba(255,255,255,.12);
+  --card:   rgba(0,0,0,.18);
+  --r:13px;
+}
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;overflow:hidden}
+body{
+  background:var(--teal);
+  color:var(--text);
+  font-family:-apple-system,'Segoe UI',Roboto,sans-serif;
+  display:flex;flex-direction:column;height:100vh;
+}
+.page{flex:1;overflow-y:auto;overflow-x:hidden}
+
+/* ── TOPBAR ── */
+.topbar{
+  background:var(--teal5);
+  border-bottom:1px solid var(--border);
+  padding:10px 14px;display:flex;align-items:center;gap:10px;
+  flex-shrink:0;z-index:20;
+}
+.tb-back{
+  width:32px;height:32px;border-radius:8px;
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  display:flex;align-items:center;justify-content:center;
+  cursor:pointer;font-size:14px;color:var(--muted);transition:.2s;
+  visibility:hidden;flex-shrink:0;
+}
+.tb-back.on{visibility:visible}
+.tb-back:active{background:var(--coral);color:#fff}
+.tb-logo{flex:1;display:flex;align-items:center}
+.tb-logo img{height:22px;object-fit:contain}
+.tb-right{text-align:right;flex-shrink:0}
+.tb-title{font-size:13px;font-weight:700}
+.tb-sub{font-size:10px;color:var(--muted)}
+
+/* progress */
+.progress{height:3px;background:rgba(0,0,0,.2);flex-shrink:0}
+.progress-fill{height:100%;background:var(--coral);border-radius:0 2px 2px 0;transition:width .3s ease}
+
+/* tabs */
+#tabs-bar{flex-shrink:0}
+.tabs{display:flex;background:var(--teal4);border-bottom:1px solid var(--border)}
+.tab{
+  flex:1;padding:10px 6px;text-align:center;cursor:pointer;
+  font-size:11px;color:var(--muted);transition:.2s;
+  border-bottom:2px solid transparent;
+}
+.tab.on{color:var(--coral);border-bottom-color:var(--coral)}
+.tab-ic{font-size:18px;margin-bottom:2px}
+
+/* ── SCREENS ── */
+.screen{display:none;min-height:100%}
+.screen.on{display:block;animation:fadeUp .22s ease}
+@keyframes fadeUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.pad{padding:12px 14px 100px}
+
+/* ── SPLASH ── */
+.splash{
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:40px 24px;min-height:100vh;
+  background:linear-gradient(160deg,var(--teal5),var(--teal4),var(--teal));
+}
+.sp-logo img{height:38px;margin-bottom:12px}
+.sp-tagline{font-size:11px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;text-align:center;margin-bottom:6px}
+.sp-head{font-size:22px;font-weight:800;text-align:center;margin-bottom:6px}
+.sp-desc{font-size:12px;color:var(--muted);text-align:center;margin-bottom:32px}
+.role-cards{display:grid;grid-template-columns:1fr 1fr;gap:12px;width:100%;max-width:300px}
+.role-card{
+  background:rgba(0,0,0,.2);border:1.5px solid var(--border);
+  border-radius:var(--r);padding:20px 12px;text-align:center;
+  cursor:pointer;transition:all .2s;
+}
+.role-card:active{transform:scale(.96)}
+.role-card:hover,.role-card:active{border-color:var(--coral);background:rgba(232,89,58,.12)}
+.rc-icon{font-size:34px;margin-bottom:8px}
+.rc-name{font-size:14px;font-weight:700;margin-bottom:3px}
+.rc-desc{font-size:10px;color:var(--muted)}
+
+/* ── LOGIN ── */
+.login-wrap{padding:20px 16px;max-width:360px;margin:0 auto}
+.login-box{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);padding:24px;margin-top:20px;
+}
+.login-icon{font-size:42px;text-align:center;margin-bottom:8px}
+.login-title{font-size:16px;font-weight:800;text-align:center;margin-bottom:3px}
+.login-sub{font-size:11px;color:var(--muted);text-align:center;margin-bottom:20px}
+.field{margin-bottom:12px}
+.field label{display:block;font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.field input{
+  width:100%;background:rgba(0,0,0,.25);border:1.5px solid var(--border);
+  border-radius:9px;padding:12px 14px;color:var(--text);font-size:15px;
+  outline:none;transition:.2s;
+}
+.field input:focus{border-color:var(--coral)}
+.login-err{
+  background:rgba(231,76,60,.12);border:1px solid rgba(231,76,60,.35);
+  border-radius:8px;padding:10px;font-size:12px;color:#f1948a;
+  text-align:center;margin-bottom:12px;display:none;
+}
+.login-err.on{display:block;animation:shake .3s}
+@keyframes shake{0%,100%{transform:none}25%{transform:translateX(-7px)}75%{transform:translateX(7px)}}
+
+/* ── SLABEL ── */
+.slabel{font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:14px 0 8px}
+
+/* ── ROOM CARDS ── */
+.room-card{
+  background:rgba(0,0,0,.2);border:1.5px solid var(--border);
+  border-radius:var(--r);padding:14px;margin-bottom:10px;
+  cursor:pointer;display:flex;align-items:center;gap:12px;transition:.2s;
+}
+.room-card:active{transform:scale(.98)}
+.room-card.on{border-color:var(--coral);background:rgba(232,89,58,.1)}
+.rm-ic{
+  width:48px;height:48px;border-radius:11px;
+  background:rgba(0,0,0,.2);
+  display:flex;align-items:center;justify-content:center;
+  font-size:26px;flex-shrink:0;transition:.2s;
+}
+.room-card.on .rm-ic{background:rgba(232,89,58,.2)}
+.rm-info{flex:1}
+.rm-name{font-weight:700;font-size:14px;margin-bottom:2px}
+.rm-cap{font-size:11px;color:var(--muted);margin-bottom:1px}
+.rm-floor{font-size:10px;color:var(--muted);opacity:.7}
+.rm-chk{font-size:22px}
+
+/* ── CALENDAR ── */
+.cal-grid-wrap{background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;margin-bottom:10px}
+.cal-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:12px 14px;
+  background:rgba(0,0,0,.2);
+  border-bottom:1px solid var(--border);
+}
+.cal-btn{
+  width:30px;height:30px;border-radius:8px;
+  background:rgba(255,255,255,.1);border:none;color:var(--text);
+  font-size:13px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;
+}
+.cal-btn:active{background:var(--coral);color:#fff}
+.cal-month-label{font-weight:800;font-size:14px}
+.cal-wd-row{
+  display:grid;grid-template-columns:repeat(7,1fr);
+  padding:8px 10px 4px;background:rgba(0,0,0,.1);
+}
+.cal-wd{text-align:center;font-size:10px;font-weight:700;color:var(--muted)}
+.cal-days-grid{display:grid;grid-template-columns:repeat(7,1fr);padding:6px 10px 10px;gap:4px}
+.cd{
+  aspect-ratio:1;border-radius:9px;
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:600;cursor:pointer;
+  transition:all .15s;position:relative;user-select:none;
+  color:var(--text);
+}
+.cd.empty,.cd.past{opacity:.25;cursor:default}
+.cd.wknd{color:rgba(231,76,60,.6);cursor:default;opacity:.5}
+.cd.avail:hover{background:rgba(232,89,58,.25)}
+.cd.today{
+  background:rgba(243,156,18,.15);color:var(--gold);
+  border:1.5px solid rgba(243,156,18,.4);font-weight:800;
+}
+.cd.has-dot::after{
+  content:'';position:absolute;bottom:3px;left:50%;transform:translateX(-50%);
+  width:4px;height:4px;border-radius:50%;background:var(--coral);
+}
+.cd.picked{
+  background:var(--coral)!important;color:#fff!important;
+  box-shadow:0 3px 12px rgba(232,89,58,.5);
+  transform:scale(1.12);font-weight:800;
+}
+
+/* ── SCHED PANEL ── */
+.cal-sched{display:grid;grid-template-columns:1.1fr 1fr;gap:10px}
+@media(max-width:360px){.cal-sched{grid-template-columns:1fr}}
+.sched-box{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);overflow:hidden;
+}
+.sched-hd{
+  padding:9px 10px;display:flex;align-items:center;gap:6px;
+  background:rgba(0,0,0,.2);border-bottom:1px solid var(--border);
+}
+.sched-hd-t{font-size:11px;font-weight:700}
+.sched-dt{font-size:10px;color:var(--coral);margin-left:auto;font-weight:700}
+.sched-body{padding:8px;max-height:220px;overflow-y:auto}
+.sched-empty{padding:22px 8px;text-align:center;color:var(--muted);font-size:11px}
+.sched-empty .se-ic{font-size:24px;margin-bottom:5px}
+.free-banner{
+  padding:10px 8px;border-radius:8px;text-align:center;
+  background:rgba(46,204,113,.08);border:1px solid rgba(46,204,113,.2);
+  font-size:11px;color:var(--green);animation:fadeUp .2s;
+}
+.sitem{
+  padding:8px;border-radius:8px;margin-bottom:5px;
+  background:rgba(0,0,0,.15);border:1px solid var(--border);animation:fadeUp .18s;
+}
+.si-time{font-size:12px;font-weight:800;color:var(--coral)}
+.si-who{font-size:10px;color:var(--muted);margin-top:2px}
+.si-purpose{font-size:10px;color:rgba(255,255,255,.4);margin-top:1px}
+.qlabel{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:10px 0 5px}
+.quick-slots{display:flex;flex-wrap:wrap;gap:5px}
+.qs{
+  padding:5px 10px;border-radius:7px;
+  background:rgba(232,89,58,.12);border:1px solid rgba(232,89,58,.3);
+  font-size:10px;color:var(--coral);cursor:pointer;font-weight:700;transition:.15s;
+}
+.qs:active{background:rgba(232,89,58,.3)}
+
+/* ── TIME ── */
+.time-box{background:rgba(0,0,0,.2);border:1px solid var(--border);border-radius:var(--r);padding:14px}
+.tbadges{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+.tbadge{
+  flex:1;background:rgba(0,0,0,.25);border-radius:10px;
+  padding:10px 10px;text-align:center;transition:.25s;
+  border:1.5px solid transparent;
+}
+.tbadge.lit{
+  border-color:var(--coral);background:rgba(232,89,58,.12);
+  box-shadow:0 0 14px rgba(232,89,58,.25);
+}
+.tbadge.done{border-color:var(--green);background:rgba(46,204,113,.08)}
+.tbl{font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px}
+.tbv{font-size:22px;font-weight:900}
+.t-arrow{font-size:18px;color:var(--muted)}
+
+/* timeline bar */
+.tl{position:relative;height:8px;background:rgba(0,0,0,.3);border-radius:4px;margin:0 0 12px;overflow:visible}
+.tl-bk{position:absolute;height:100%;background:rgba(231,76,60,.5);border-radius:4px}
+.tl-sel{
+  position:absolute;height:100%;
+  background:linear-gradient(90deg,var(--coral),#ff7f5e);
+  border-radius:4px;display:none;transition:all .15s;
+}
+
+.sl-mode{font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;min-height:16px}
+.sl-mode b{color:var(--coral)}
+
+/* SLOT GRID */
+.slot-grid{display:grid;grid-template-columns:repeat(9,1fr);gap:4px;margin-bottom:12px}
+.sl{
+  height:36px;border-radius:8px;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+  cursor:pointer;transition:all .12s;position:relative;
+  font-weight:800;line-height:1.1;
+  background:rgba(46,204,113,.12);
+  border:1.5px solid rgba(46,204,113,.25);
+  user-select:none;
+}
+.sl-h{font-size:12px;color:var(--green)}
+.sl-m{font-size:8px;color:rgba(46,204,113,.6)}
+.sl.bk{
+  background:rgba(231,76,60,.1);
+  border-color:rgba(231,76,60,.2);
+  cursor:not-allowed;
+}
+.sl.bk .sl-h{color:rgba(231,76,60,.5);text-decoration:line-through}
+.sl.bk .sl-m{color:rgba(231,76,60,.3)}
+.sl.ss{
+  background:var(--coral)!important;
+  border-color:var(--coral)!important;
+  box-shadow:0 0 12px rgba(232,89,58,.6);
+  transform:scale(1.1);z-index:3;
+}
+.sl.ss .sl-h,.sl.ss .sl-m{color:#fff!important}
+.sl.se{
+  background:var(--purple)!important;
+  border-color:var(--purple)!important;
+  box-shadow:0 0 12px rgba(142,68,173,.6);
+  transform:scale(1.1);z-index:3;
+}
+.sl.se .sl-h,.sl.se .sl-m{color:#fff!important}
+.sl.ir{
+  background:rgba(232,89,58,.22);
+  border-color:rgba(232,89,58,.4);
+}
+.sl.ir .sl-h{color:#ffb49a}
+.sl.ir .sl-m{color:rgba(255,180,154,.6)}
+.sl:not(.bk):not(.ss):not(.se):hover{transform:scale(1.08);z-index:2}
+
+.legend{display:flex;gap:10px;flex-wrap:wrap;margin-top:8px}
+.leg{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--muted)}
+.leg-d{width:8px;height:8px;border-radius:2px}
+
+.dur-badge{
+  text-align:center;padding:9px;
+  background:rgba(232,89,58,.08);border:1px solid rgba(232,89,58,.2);
+  border-radius:9px;margin-top:9px;font-size:12px;color:#ffa580;display:none;
+}
+.dur-badge.on{display:block;animation:fadeUp .2s}
+.cfl-msg{
+  display:none;flex-direction:column;gap:4px;
+  background:rgba(231,76,60,.1);border:1px solid rgba(231,76,60,.3);
+  border-radius:9px;padding:11px;margin-top:9px;font-size:11px;color:#f1948a;
+}
+.cfl-msg.on{display:flex;animation:fadeUp .2s}
+
+/* ── INPUT ── */
+.ibox{
+  background:rgba(0,0,0,.2);border:1.5px solid var(--border);
+  border-radius:var(--r);overflow:hidden;transition:.2s;
+}
+.ibox:focus-within{border-color:var(--coral)}
+textarea{
+  width:100%;background:transparent;border:none;
+  color:var(--text);font-size:14px;padding:12px;
+  resize:none;outline:none;font-family:inherit;min-height:90px;
+}
+textarea::placeholder{color:var(--muted)}
+
+/* ── CONFIRM CARD ── */
+.conf-card{
+  background:rgba(0,0,0,.25);border:1px solid rgba(232,89,58,.3);
+  border-radius:var(--r);padding:16px;margin-bottom:14px;
+}
+.cr{display:flex;align-items:flex-start;gap:10px;margin-bottom:10px}
+.cr:last-child{margin-bottom:0}
+.cr-ic{font-size:15px;width:20px;text-align:center;margin-top:2px}
+.cr-lbl{font-size:9px;color:rgba(255,255,255,.45);letter-spacing:1px;text-transform:uppercase;margin-bottom:2px}
+.cr-val{font-size:13px;font-weight:700}
+
+/* ── MY BOOKINGS ── */
+.bitem{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);padding:12px;margin-bottom:8px;
+  display:flex;align-items:center;gap:10px;animation:fadeUp .2s;
+}
+.bi-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0}
+.bi-dot.approved{background:var(--green)}
+.bi-dot.pending{background:var(--gold)}
+.bi-dot.rejected{background:var(--red)}
+.bi-info{flex:1}
+.bi-room{font-size:12px;font-weight:700;margin-bottom:2px}
+.bi-time{font-size:11px;color:var(--coral)}
+.bi-date{font-size:10px;color:var(--muted);margin-top:1px}
+.badge{display:inline-block;padding:4px 8px;border-radius:6px;font-size:9px;font-weight:700;white-space:nowrap}
+.badge.approved{background:rgba(46,204,113,.12);color:var(--green)}
+.badge.pending{background:rgba(243,156,18,.12);color:var(--gold)}
+.badge.rejected{background:rgba(231,76,60,.1);color:#f1948a}
+
+/* ── ADMIN ── */
+.stat-row{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.stat-card{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);padding:14px 8px;text-align:center;
+}
+.stat-num{font-size:28px;font-weight:900;color:var(--coral)}
+.stat-lbl{font-size:9px;color:var(--muted);margin-top:2px}
+.pending-card{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);padding:14px;margin-bottom:10px;animation:fadeUp .2s;
+}
+.pc-head{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pc-room{font-weight:700;font-size:13px}
+.pc-id{font-size:10px;color:var(--muted);margin-left:auto}
+.pc-details{font-size:11px;color:var(--muted);margin-bottom:10px;line-height:1.7}
+.pc-details b{color:var(--text)}
+.pc-btns{display:flex;gap:6px}
+.pc-btn{flex:1;padding:9px;border-radius:9px;border:none;font-size:12px;font-weight:700;cursor:pointer;transition:.2s}
+.pc-btn:active{transform:scale(.97)}
+.pc-ok{background:rgba(46,204,113,.12);color:var(--green);border:1px solid rgba(46,204,113,.25)}
+.pc-no{background:rgba(231,76,60,.1);color:#f1948a;border:1px solid rgba(231,76,60,.2)}
+.pc-edit{background:rgba(142,68,173,.1);color:#c39bd3;border:1px solid rgba(142,68,173,.2);flex:0;padding:9px 12px}
+
+/* ── MODAL ── */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.6);
+  z-index:100;display:none;align-items:flex-end;backdrop-filter:blur(4px);
+}
+.modal-overlay.on{display:flex;animation:fadeUp .2s}
+.modal-box{
+  background:var(--teal4);border:1px solid var(--border);
+  border-radius:18px 18px 0 0;padding:20px 16px 30px;
+  width:100%;position:relative;animation:slideUp .25s ease;
+}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:none}}
+.modal-title{font-size:15px;font-weight:800;text-align:center;margin-bottom:16px}
+.mclose{
+  position:absolute;top:14px;right:14px;
+  width:28px;height:28px;border-radius:50%;
+  background:rgba(0,0,0,.2);border:none;color:var(--muted);
+  font-size:14px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+}
+.mfield{margin-bottom:12px}
+.mfield label{display:block;font-size:10px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:4px}
+.mfield input,.mfield select{
+  width:100%;background:rgba(0,0,0,.25);border:1.5px solid var(--border);
+  border-radius:9px;padding:10px 12px;color:var(--text);font-size:14px;outline:none;transition:.2s;
+}
+.mfield input:focus,.mfield select:focus{border-color:var(--coral)}
+.mfield select option{background:var(--teal4)}
+
+/* ── SUCCESS ── */
+.ok-wrap{text-align:center;padding:30px 16px}
+.ok-icon{
+  width:72px;height:72px;background:rgba(46,204,113,.12);border-radius:50%;
+  display:flex;align-items:center;justify-content:center;font-size:36px;
+  margin:0 auto 14px;animation:popIn .4s cubic-bezier(.175,.885,.32,1.275);
+}
+@keyframes popIn{0%{transform:scale(0);opacity:0}100%{transform:scale(1);opacity:1}}
+
+/* ── BOTTOM BAR ── */
+.botbar{
+  position:fixed;bottom:0;left:0;right:0;padding:8px 14px 16px;
+  background:linear-gradient(to top,var(--teal5) 65%,transparent);z-index:10;
+}
+.btn{width:100%;padding:15px;border-radius:12px;border:none;font-size:15px;font-weight:700;cursor:pointer;transition:.2s;display:block}
+.btn:active{transform:scale(.97)}
+.btn-p{
+  background:linear-gradient(135deg,var(--coral),var(--coral2));
+  color:#fff;box-shadow:0 6px 20px rgba(232,89,58,.35);
+}
+.btn-p:disabled{background:rgba(0,0,0,.25);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}
+.btn-ghost{background:rgba(0,0,0,.2);color:var(--muted);border:1px solid var(--border);font-size:13px;padding:10px;margin-top:8px}
+
+.empty-st{text-align:center;padding:28px 16px;color:var(--muted)}
+.empty-st .ei{font-size:32px;margin-bottom:8px}
+</style>
+</head>
+<body>
+
+<div class="topbar" id="topbar" style="display:none">
+  <div class="tb-back" id="tb-back" onclick="goBack()">◀</div>
+  <div class="tb-logo"><img id="tb-img" src="data:image/jpeg;base64,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" alt="Hayot Bank"></div>
+  <div class="tb-right">
+    <div class="tb-title" id="tb-t">Бронирование</div>
+    <div class="tb-sub" id="tb-s">Hayot Bank</div>
+  </div>
+</div>
+<div class="progress" id="pbar" style="display:none"><div class="progress-fill" id="pfill" style="width:0%"></div></div>
+<div id="tabs-bar" style="display:none">
+  <div class="tabs">
+    <div class="tab on" id="tab-book" onclick="switchTab('book')"><div class="tab-ic">📅</div>Забронировать</div>
+    <div class="tab" id="tab-my" onclick="switchTab('my')"><div class="tab-ic">📋</div>Мои заявки</div>
+    <div class="tab" id="tab-admin" onclick="switchTab('admin')" style="display:none"><div class="tab-ic">⚙️</div>Управление</div>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- SPLASH -->
+  <div class="screen on" id="sc-splash">
+    <div class="splash">
+      <div class="sp-logo"><img src="data:image/jpeg;base64,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" alt="Hayot Bank"></div>
+      <div class="sp-tagline">Система бронирования</div>
+      <div class="sp-head">Выберите роль</div>
+      <div class="sp-desc">Переговорные кабинеты Hayot Bank</div>
+      <div class="role-cards">
+        <div class="role-card" onclick="enterGuest()">
+          <div class="rc-icon">👤</div>
+          <div class="rc-name">Гость</div>
+          <div class="rc-desc">Создать бронирование</div>
+        </div>
+        <div class="role-card" onclick="goView('login')">
+          <div class="rc-icon">🔐</div>
+          <div class="rc-name">Администратор</div>
+          <div class="rc-desc">Управление заявками</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOGIN -->
+  <div class="screen" id="sc-login">
+    <div class="login-wrap">
+      <div class="login-box">
+        <div class="login-icon">🔐</div>
+        <div class="login-title">Вход для администратора</div>
+        <div class="login-sub">Введите учётные данные</div>
+        <div class="login-err" id="lerr">Неверный логин или пароль</div>
+        <div class="field"><label>Логин</label><input type="text" id="l-u" placeholder="Логин" autocomplete="off"></div>
+        <div class="field"><label>Пароль</label><input type="password" id="l-p" placeholder="Пароль"></div>
+        <button class="btn btn-p" onclick="tryLogin()">Войти →</button>
+        <button class="btn btn-ghost" onclick="goView('splash')">← Назад</button>
+        <button class="btn btn-ghost" onclick="goView('splash')">← Назад</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HOME -->
+  <div class="screen" id="sc-home">
+    <div id="pane-book" class="pad">
+      <div class="slabel">Выберите кабинет</div>
+      <div class="room-card" id="rc-GO_3" onclick="pickRoom('GO_3','Переговорная ГО (3 этаж)')">
+        <div class="rm-ic">🏛</div>
+        <div class="rm-info">
+          <div class="rm-name">Переговорная ГО</div>
+          <div class="rm-cap">👥 16–20 человек</div>
+          <div class="rm-floor">3 этаж · Главный офис</div>
+        </div>
+        <div class="rm-chk" id="ck-GO_3"></div>
+      </div>
+      <div class="room-card" id="rc-MINOR" onclick="pickRoom('MINOR','Кабинет офис Минор')">
+        <div class="rm-ic">🏢</div>
+        <div class="rm-info">
+          <div class="rm-name">Кабинет офис Минор</div>
+          <div class="rm-cap">👥 10–12 человек</div>
+          <div class="rm-floor">Офис Минор</div>
+        </div>
+        <div class="rm-chk" id="ck-MINOR"></div>
+      </div>
+    </div>
+    <div id="pane-my" class="pad" style="display:none">
+      <div id="my-list"><div class="empty-st"><div class="ei">📭</div>Нет бронирований</div></div>
+    </div>
+    <div id="pane-admin" class="pad" style="display:none">
+      <div class="stat-row">
+        <div class="stat-card"><div class="stat-num" id="adm-p">0</div><div class="stat-lbl">Ожидают</div></div>
+        <div class="stat-card"><div class="stat-num" id="adm-t">0</div><div class="stat-lbl">Сегодня</div></div>
+        <div class="stat-card"><div class="stat-num" id="adm-a">0</div><div class="stat-lbl">Всего</div></div>
+      </div>
+      <div class="slabel">Ожидают решения</div>
+      <div id="adm-pending-list"></div>
+      <div class="slabel" style="margin-top:16px">Все заявки сегодня</div>
+      <div id="adm-today-list"></div>
+    </div>
+  </div>
+
+  <!-- DATE -->
+  <div class="screen" id="sc-date">
+    <div class="pad">
+      <div class="slabel">Выберите дату</div>
+      <div class="cal-sched">
+        <div>
+          <div class="cal-grid-wrap">
+            <div class="cal-head">
+              <button class="cal-btn" onclick="prevM()">◀</button>
+              <div class="cal-month-label" id="cal-title"></div>
+              <button class="cal-btn" onclick="nextM()">▶</button>
+            </div>
+            <div class="cal-wd-row">
+              <div class="cal-wd">Пн</div><div class="cal-wd">Вт</div>
+              <div class="cal-wd">Ср</div><div class="cal-wd">Чт</div>
+              <div class="cal-wd">Пт</div>
+              <div class="cal-wd" style="color:#e74c3c">Сб</div>
+              <div class="cal-wd" style="color:#e74c3c">Вс</div>
+            </div>
+            <div class="cal-days-grid" id="cal-grid"></div>
+          </div>
+        </div>
+        <div class="sched-box">
+          <div class="sched-hd">
+            <span>📋</span><span class="sched-hd-t">Расписание</span>
+            <span class="sched-dt" id="sched-dt">—</span>
+          </div>
+          <div class="sched-body" id="sched-body">
+            <div class="sched-empty"><div class="se-ic">👆</div>Выберите дату</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TIME -->
+  <div class="screen" id="sc-time">
+    <div class="pad">
+      <div class="slabel">Выберите время</div>
+      <div class="time-box">
+        <div class="tbadges">
+          <div class="tbadge" id="tbs"><div class="tbl">Начало</div><div class="tbv" id="tvs">--:--</div></div>
+          <div class="t-arrow">→</div>
+          <div class="tbadge" id="tbe"><div class="tbl">Конец</div><div class="tbv" id="tve">--:--</div></div>
+        </div>
+        <div class="tl" id="tl"><div class="tl-sel" id="tl-sel"></div></div>
+        <div class="sl-mode" id="sl-mode">Нажмите на ячейку чтобы выбрать <b>начало</b></div>
+        <div class="slot-grid" id="slot-grid"></div>
+        <div class="legend">
+          <div class="leg"><div class="leg-d" style="background:rgba(46,204,113,.5)"></div>Свободно</div>
+          <div class="leg"><div class="leg-d" style="background:rgba(231,76,60,.4)"></div>Занято</div>
+          <div class="leg"><div class="leg-d" style="background:var(--coral)"></div>Начало</div>
+          <div class="leg"><div class="leg-d" style="background:var(--purple)"></div>Конец</div>
+        </div>
+        <div class="dur-badge" id="dur"></div>
+        <div class="cfl-msg" id="cfl"><b>⚠️ Конфликт!</b><span id="cfl-t"></span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PURPOSE -->
+  <div class="screen" id="sc-purpose">
+    <div class="pad">
+      <div class="slabel">Цель встречи</div>
+      <div class="ibox"><textarea id="purpose-in" placeholder="Укажите тему или цель встречи..." oninput="chkPurpose()"></textarea></div>
+      <div class="slabel" style="margin-top:14px">Ваша заявка</div>
+      <div class="conf-card">
+        <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val" id="cf-rm"></div></div></div>
+        <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val" id="cf-dt"></div></div></div>
+        <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val" id="cf-tm"></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SUCCESS -->
+  <div class="screen" id="sc-ok">
+    <div class="ok-wrap">
+      <div class="ok-icon">✅</div>
+      <h2 style="margin-bottom:8px">Заявка отправлена!</h2>
+      <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Ответственный получит уведомление.<br>Авто-подтверждение через 30 мин.</p>
+      <div class="conf-card" id="ok-card"></div>
+      <button class="btn btn-p" style="margin-top:16px" onclick="goSplash()">🏠 На главную</button>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<div class="botbar" id="botbar" style="display:none">
+  <button class="btn btn-p" id="btn-main" disabled onclick="btnClick()">Далее →</button>
+</div>
+
+<!-- EDIT MODAL -->
+<div class="modal-overlay" id="edit-modal" onclick="if(event.target===this)closeModal()">
+  <div class="modal-box">
+    <button class="mclose" onclick="closeModal()">✕</button>
+    <div class="modal-title">✏️ Редактировать заявку</div>
+    <input type="hidden" id="edit-bid">
+    <div class="mfield"><label>Дата</label><input type="date" id="edit-date"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      <div class="mfield"><label>Начало</label><select id="edit-start"></select></div>
+      <div class="mfield"><label>Конец</label><select id="edit-end"></select></div>
+    </div>
+    <div class="mfield"><label>Цель встречи</label><input type="text" id="edit-purpose"></div>
+    <button class="btn btn-p" onclick="saveEdit()">💾 Сохранить</button>
+  </div>
+</div>
+
+<script>
+const tg=window.Telegram?.WebApp;
+if(tg){tg.expand();try{tg.setHeaderColor('#0e3a4a')}catch(e){}}
+
+// ── TIME SLOTS: 09:00 to 18:00 in 30-min steps ──
+// IMPORTANT: SLOTS[i] = start of slot i, booking from SLOTS[si] to SLOTS[ei]
+// si = start index, ei = end index (ei > si, end time = SLOTS[ei])
+const SLOTS=[];
+for(let h=9;h<=18;h++){
+  SLOTS.push(p2(h)+':00');
+  if(h<18) SLOTS.push(p2(h)+':30');
+}
+// SLOTS = [09:00,09:30,10:00,...,17:30,18:00]  length = 19
+
+function p2(n){return String(n).padStart(2,'0')}
+
+// fill edit modal selects
+const es=document.getElementById('edit-start'),ee=document.getElementById('edit-end');
+SLOTS.forEach(s=>{
+  es.innerHTML+=`<option value="${s}">${s}</option>`;
+  ee.innerHTML+=`<option value="${s}">${s}</option>`;
+});
+
+const MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const MONTHS_S=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+const S={
+  view:'splash',tab:'book',role:'guest',
+  roomId:null,roomName:null,
+  date:null,dateStr:null,
+  calY:new Date().getFullYear(),calM:new Date().getMonth(),
+  si:null,    // start slot index → start time = SLOTS[si]
+  ei:null,    // end slot index   → end time   = SLOTS[ei]   (ei > si)
+  selEnd:false,
+  booked:[],myBookings:[],
+  adminData:{pending:0,today:0,total:0,pendingItems:[],todayItems:[]},
+};
+
+// ── GITHUB — источник данных ──
+const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
+const ADMIN_LOGIN = 'hayot';
+const ADMIN_PASS  = 'bank2024';
+
+// Загружаем актуальные данные при старте
+async function loadBookingsFromGH(){
+  try {
+    const resp = await fetch(GH_RAW + '?t=' + Date.now());
+    if(!resp.ok) return;
+    const all = await resp.json();
+    // Для календаря (занятые слоты)
+    S.booked = all
+      .filter(b => b.status !== 'rejected')
+      .map(b => ({
+        room_id: b.room_id, date: b.date,
+        start: b.start_time, end: b.end_time,
+        name: b.full_name || b.username || '—',
+        status: b.status
+      }));
+    // Мои заявки
+    const myId = String(tg?.initDataUnsafe?.user?.id || '');
+    if(myId){
+      S.myBookings = all
+        .filter(b => String(b.user_id) === myId)
+        .map(b=>({...b, room_name: b.room_name||b.room_id}));
+    }
+  } catch(e){ console.log('GH load error', e); }
+}
+loadBookingsFromGH();
+
+// ── ROLE ──
+function enterGuest(){S.role='guest';document.getElementById('tab-admin').style.display='none';initHome()}
+
+async function tryLogin(){
+  const u = document.getElementById('l-u').value.trim();
+  const p = document.getElementById('l-p').value;
+  const errEl = document.getElementById('lerr');
+  errEl.style.display='none';
+
+  if(u === ADMIN_LOGIN && p === ADMIN_PASS){
+    S.role='admin';
+    document.getElementById('tab-admin').style.display='flex';
+    haptic('success');
+    initHome();
+    switchTab('admin');
+  } else {
+    errEl.textContent='Неверный логин или пароль';
+    errEl.style.display='block';errEl.classList.add('on');
+    haptic('error');
+    setTimeout(()=>errEl.classList.remove('on'),400);
+  }
+}
+function initHome(){
+  document.getElementById('tabs-bar').style.display='block';
+  goView('home');
+  switchTab(S.role==='admin'?'admin':'book');
+}
+function goSplash(){
+  S.roomId=null;S.roomName=null;S.date=null;S.dateStr=null;
+  S.si=null;S.ei=null;S.selEnd=false;
+  document.querySelectorAll('.rm-chk').forEach(e=>e.textContent='');
+  document.querySelectorAll('.room-card').forEach(e=>e.classList.remove('on'));
+  document.getElementById('tabs-bar').style.display='none';
+  goView('splash');
+}
+
+// ── TABS ──
+function switchTab(t){
+  S.tab=t;
+  ['book','my','admin'].forEach(id=>{
+    document.getElementById('tab-'+id)?.classList.remove('on');
+    document.getElementById('pane-'+id).style.display='none';
+  });
+  document.getElementById('tab-'+t).classList.add('on');
+  document.getElementById('pane-'+t).style.display='block';
+  if(t==='book'){document.getElementById('botbar').style.display='block';btnOk(!!S.roomId);document.getElementById('btn-main').textContent='Выбрать дату →'}
+  else document.getElementById('botbar').style.display='none';
+  if(t==='my') renderMyBookings();
+  if(t==='admin') renderAdminDash();
+}
+
+// ── ROOM ──
+function pickRoom(id,name){
+  S.roomId=id;S.roomName=name;
+  document.querySelectorAll('.room-card').forEach(c=>c.classList.remove('on'));
+  document.getElementById('ck-GO_3').textContent='';
+  document.getElementById('ck-MINOR').textContent='';
+  document.getElementById('rc-'+id).classList.add('on');
+  document.getElementById('ck-'+id).textContent='✅';
+  btnOk(true);haptic('light');
+}
+
+// ── CALENDAR ──
+function renderCal(){
+  const y=S.calY,m=S.calM;
+  document.getElementById('cal-title').textContent=MONTHS[m]+' '+y;
+  const today=new Date();today.setHours(0,0,0,0);
+  const fdow=(new Date(y,m,1).getDay()+6)%7;
+  const dim=new Date(y,m+1,0).getDate();
+  const g=document.getElementById('cal-grid');g.innerHTML='';
+  for(let i=0;i<fdow;i++){const e=document.createElement('div');e.className='cd empty';g.appendChild(e)}
+  for(let d=1;d<=dim;d++){
+    const dt=new Date(y,m,d);
+    const el=document.createElement('div');el.className='cd';el.textContent=d;
+    const dow=dt.getDay();
+    const ds=y+'-'+p2(m+1)+'-'+p2(d);
+    if(dt<today)el.classList.add('past');
+    else if(dow===0||dow===6)el.classList.add('wknd');
+    else{
+      el.classList.add('avail');
+      if(dt.toDateString()===today.toDateString())el.classList.add('today');
+      if(S.booked.some(b=>b.date===ds))el.classList.add('has-dot');
+      el.onclick=()=>pickDate(ds,d,m,y,el);
+    }
+    if(ds===S.date)el.classList.add('picked');
+    g.appendChild(el);
+  }
+}
+function prevM(){
+  const t=new Date();S.calM--;
+  if(S.calM<0){S.calM=11;S.calY--}
+  if(S.calY<t.getFullYear()||(S.calY===t.getFullYear()&&S.calM<t.getMonth())){S.calM++;if(S.calM>11){S.calM=0;S.calY++}}
+  renderCal();
+}
+function nextM(){S.calM++;if(S.calM>11){S.calM=0;S.calY++}renderCal()}
+
+function pickDate(ds,d,m,y,el){
+  S.date=ds;S.dateStr=d+' '+MONTHS_S[m]+' '+y;
+  document.querySelectorAll('.cd.picked').forEach(e=>e.classList.remove('picked'));
+  el.classList.add('picked');
+  document.getElementById('sched-dt').textContent=S.dateStr;
+  renderSchedPanel();
+  btnOk(true);
+  document.getElementById('btn-main').textContent='Выбрать время →';
+  haptic('light');
+}
+
+function renderSchedPanel(){
+  const body=document.getElementById('sched-body');body.innerHTML='';
+  const bkd=S.booked.filter(b=>b.date===S.date);
+  if(!bkd.length){
+    body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>';
+    appendQuickSlots(body,bkd);return;
+  }
+  bkd.forEach(b=>{
+    const el=document.createElement('div');el.className='sitem';
+    el.innerHTML=`<div class="si-time">${b.start}–${b.end}</div><div class="si-who">👤 ${b.name||'—'}</div><div class="si-purpose">${b.purpose||''}</div>`;
+    body.appendChild(el);
+  });
+  appendQuickSlots(body,bkd);
+}
+
+function appendQuickSlots(body,bkd){
+  const qs=findFreeSlots(bkd);
+  if(!qs.length)return;
+  const lbl=document.createElement('div');lbl.className='qlabel';lbl.textContent='Свободные окна';body.appendChild(lbl);
+  const wrap=document.createElement('div');wrap.className='quick-slots';
+  qs.forEach(q=>{
+    const b=document.createElement('div');b.className='qs';b.textContent=q.label;
+    b.onclick=()=>{S.si=q.si;S.ei=q.ei;goView('time')};
+    wrap.appendChild(b);
+  });
+  body.appendChild(wrap);
+}
+
+function findFreeSlots(bkd){
+  // find first 3 free 60-min blocks (2 slots)
+  const r=[];
+  for(let i=0;i<SLOTS.length-2;i++){
+    const s=SLOTS[i],e=SLOTS[i+2];
+    if(!bkd.some(b=>!(e<=b.start||s>=b.end))){
+      r.push({label:s+'–'+e,si:i,ei:i+2});
+      if(r.length>=3)break;
+    }
+  }
+  return r;
+}
+
+// ── TIME SLOTS ──
+// KEY FIX:
+// S.si = index in SLOTS array for START time  → start = SLOTS[S.si]
+// S.ei = index in SLOTS array for END time    → end   = SLOTS[S.ei]
+// Clicking slot button i as START → S.si = i
+// Clicking slot button i as END   → S.ei = i+1  (slot i ends at SLOTS[i+1])
+//   BUT user sees label SLOTS[i] and expects end = SLOTS[i] → so END click on button i → S.ei = i
+// Highlight: buttons from S.si to S.ei-1 are highlighted (those are the 30-min blocks)
+
+function renderSlots(){
+  const bkd=S.booked.filter(b=>b.date===S.date);
+
+  // timeline booked segs
+  const tl=document.getElementById('tl');
+  tl.querySelectorAll('.tl-bk').forEach(e=>e.remove());
+  // total slots = SLOTS.length - 1 time intervals (but SLOTS.length = 19 for 09:00-18:00)
+  // timeline spans 09:00 to 18:00 = 9 hours = 18 intervals of 30min
+  const totalMins=9*60; // 09:00 to 18:00
+  bkd.forEach(b=>{
+    const sMin=timeToMins(b.start)-540; // offset from 09:00
+    const eMin=timeToMins(b.end)-540;
+    if(sMin>=0&&eMin>sMin){
+      const seg=document.createElement('div');seg.className='tl-bk';
+      seg.style.left=(sMin/totalMins*100)+'%';
+      seg.style.width=((eMin-sMin)/totalMins*100)+'%';
+      tl.appendChild(seg);
+    }
+  });
+
+  // slot buttons: one button per 30-min interval
+  // button i covers SLOTS[i] to SLOTS[i+1]
+  // button label shows start of interval
+  const g=document.getElementById('slot-grid');g.innerHTML='';
+  for(let i=0;i<SLOTS.length-1;i++){
+    const slot=SLOTS[i];
+    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start||slot>=b.end)});
+    const el=document.createElement('div');el.className='sl';
+    const [h,m]=slot.split(':');
+    el.innerHTML=`<span class="sl-h">${h}</span><span class="sl-m">${m}</span>`;
+    el.dataset.i=i;
+    if(isBk){el.classList.add('bk')}
+    else{el.onclick=()=>clickSlot(i,bkd)}
+    g.appendChild(el);
+  }
+
+  // restore pre-selected (quick slot)
+  if(S.si!==null&&S.ei!==null){
+    setTV('s',SLOTS[S.si]);setTV('e',SLOTS[S.ei]);
+    setLit('s',false);setLit('e',true,'done');
+    document.getElementById('sl-mode').innerHTML='✓ Выбрано. Нажмите <b>Далее</b> или измените';
+    hlSlots();drawSelSeg();chkCfl(bkd);
+  } else {
+    S.si=null;S.ei=null;S.selEnd=false;
+    setTV('s','--:--');setTV('e','--:--');
+    setLit('s',false);setLit('e',false);
+    document.getElementById('tl-sel').style.display='none';
+    document.getElementById('dur').classList.remove('on');
+    document.getElementById('cfl').classList.remove('on');
+    document.getElementById('sl-mode').innerHTML='Нажмите на ячейку чтобы выбрать <b>начало</b>';
+    btnOk(false);
+  }
+}
+
+function clickSlot(i,bkd){
+  haptic('light');
+  if(!S.selEnd){
+    // ── SELECT START ──
+    // Clicking button i → start time = SLOTS[i]
+    S.si=i;S.ei=null;S.selEnd=true;
+    setTV('s',SLOTS[i]);setTV('e','--:--');
+    setLit('s',true);setLit('e',false);
+    document.getElementById('sl-mode').innerHTML='Теперь выберите <b>конец</b>';
+    document.getElementById('tl-sel').style.display='none';
+    document.getElementById('dur').classList.remove('on');
+    document.getElementById('cfl').classList.remove('on');
+    btnOk(false);
+    hlSlots();
+  } else {
+    // ── SELECT END ──
+    // Clicking button i → end time = SLOTS[i+1] (end of this 30-min block)
+    // So S.ei = i+1
+    const newEi=i+1;
+    if(newEi<=S.si){
+      // clicked before or at start → reset start
+      S.si=i;S.selEnd=true;
+      setTV('s',SLOTS[i]);setTV('e','--:--');
+      setLit('s',true);setLit('e',false);
+      document.getElementById('tl-sel').style.display='none';
+      document.getElementById('dur').classList.remove('on');
+      document.getElementById('cfl').classList.remove('on');
+      hlSlots();return;
+    }
+    S.ei=newEi;S.selEnd=false;
+    setTV('e',SLOTS[S.ei]);
+    setLit('s',false);setLit('e',true,'done');
+    document.getElementById('sl-mode').innerHTML='✓ Выбрано. Нажмите <b>Далее</b> или выберите заново';
+    hlSlots();drawSelSeg();chkCfl(bkd);
+  }
+}
+
+function hlSlots(){
+  // Highlight buttons si to ei-1 (those are the selected 30-min blocks)
+  document.querySelectorAll('.sl').forEach((el,i)=>{
+    el.classList.remove('ss','se','ir');
+    if(i===S.si) el.classList.add('ss');
+    else if(S.ei!==null&&i===S.ei-1) el.classList.add('se');
+    else if(S.ei!==null&&i>S.si&&i<S.ei-1) el.classList.add('ir');
+  });
+}
+
+function drawSelSeg(){
+  if(S.si===null||S.ei===null)return;
+  const totalMins=9*60;
+  const sMin=timeToMins(SLOTS[S.si])-540;
+  const eMin=timeToMins(SLOTS[S.ei])-540;
+  const sel=document.getElementById('tl-sel');
+  sel.style.display='block';
+  sel.style.left=(sMin/totalMins*100)+'%';
+  sel.style.width=((eMin-sMin)/totalMins*100)+'%';
+}
+
+function chkCfl(bkd){
+  if(S.si===null||S.ei===null)return;
+  const start=SLOTS[S.si],end=SLOTS[S.ei];
+  const cx=bkd.find(b=>!(end<=b.start||start>=b.end));
+  const mins=(S.ei-S.si)*30;
+  const dur=mins>=60?Math.floor(mins/60)+'ч'+(mins%60?' '+mins%60+'мин':''):mins+' мин';
+  if(cx){
+    document.getElementById('cfl').classList.add('on');
+    document.getElementById('cfl-t').textContent=`Время ${cx.start}–${cx.end} уже забронировано. Выберите другой промежуток.`;
+    document.getElementById('dur').classList.remove('on');
+    btnOk(false);haptic('error');
+  } else {
+    document.getElementById('cfl').classList.remove('on');
+    document.getElementById('dur').textContent=`⏱ Длительность: ${dur.trim()}`;
+    document.getElementById('dur').classList.add('on');
+    btnOk(true);haptic('success');
+  }
+}
+
+function timeToMins(t){const[h,m]=t.split(':').map(Number);return h*60+m}
+function setTV(w,v){document.getElementById('tv'+w).textContent=v}
+function setLit(w,on,cls){
+  const el=document.getElementById('tb'+w);
+  el.classList.remove('lit','done');
+  if(on)el.classList.add(cls||'lit');
+}
+
+// ── PURPOSE ──
+function chkPurpose(){btnOk(document.getElementById('purpose-in').value.trim().length>=3)}
+
+// ── MY BOOKINGS ──
+function renderMyBookings(){
+  const list=document.getElementById('my-list');list.innerHTML='';
+  if(!S.myBookings.length){list.innerHTML='<div class="empty-st"><div class="ei">📭</div>Нет бронирований</div>';return}
+  const sm={approved:'✅ Подтверждено',pending:'⏳ Ожидает',rejected:'❌ Отклонено'};
+  S.myBookings.forEach(b=>{
+    const el=document.createElement('div');el.className='bitem';
+    el.innerHTML=`<div class="bi-dot ${b.status}"></div><div class="bi-info"><div class="bi-room">${b.room_name||b.room_id}</div><div class="bi-time">${b.start_time}–${b.end_time}</div><div class="bi-date">📅 ${b.date}</div></div><span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
+    list.appendChild(el);
+  });
+}
+
+// ── ADMIN ──
+async function renderAdminDash(){
+  if(S.role!=='admin') return;
+  document.getElementById('adm-pending-list').innerHTML=
+    '<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
+
+  try {
+    const resp = await fetch(GH_RAW + '?t=' + Date.now());
+    const all  = await resp.json();
+    const today = new Date().toISOString().slice(0,10);
+
+    const pendingItems = all
+      .filter(b => b.status === 'pending')
+      .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
+
+    const todayItems = all
+      .filter(b => b.date === today && b.status !== 'rejected')
+      .sort((a,b) => a.start_time.localeCompare(b.start_time));
+
+    S.adminData = {
+      pending: pendingItems.length,
+      today:   todayItems.length,
+      total:   all.length,
+      pendingItems,
+      todayItems,
+    };
+    // Обновить booked для календаря
+    S.booked = all
+      .filter(b => b.status !== 'rejected')
+      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
+                  name:b.full_name||b.username||'—',status:b.status}));
+  } catch(e){
+    document.getElementById('adm-pending-list').innerHTML=
+      '<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Нет данных.<br>Убедитесь что бот запущен и bookings.json создан в репозитории.</div>';
+    return;
+  }
+
+  const d = S.adminData;
+  document.getElementById('adm-p').textContent = d.pending ?? 0;
+  document.getElementById('adm-t').textContent = d.today   ?? 0;
+  document.getElementById('adm-a').textContent = d.total   ?? 0;
+
+  const pl = document.getElementById('adm-pending-list'); pl.innerHTML='';
+  if(!d.pendingItems.length){
+    pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
+  }
+  d.pendingItems.forEach(b => pl.appendChild(makePCard(b)));
+
+  const tl2 = document.getElementById('adm-today-list'); tl2.innerHTML='';
+  if(!d.todayItems.length){
+    tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет заявок на сегодня</div>';
+  }
+  d.todayItems.forEach(b => tl2.appendChild(makeTCard(b)));
+}
+
+function makePCard(b){
+  const el=document.createElement('div');el.className='pending-card';el.id='pc-'+b.id;
+  el.innerHTML=`
+    <div class="pc-head"><span>${b.room_id==='GO_3'?'🏛':'🏢'}</span><span class="pc-room">${b.room_name||b.room_id}</span><span class="pc-id">#${b.id}</span></div>
+    <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time}–${b.end_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
+    <div class="pc-btns">
+      <button class="pc-btn pc-ok" onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
+      <button class="pc-btn pc-no" onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
+      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
+    </div>`;
+  return el;
+}
+
+function makeTCard(b){
+  const el=document.createElement('div');el.className='bitem';
+  const sm={approved:'✅ Подтверждено',pending:'⏳ Ожидает',rejected:'❌ Отклонено'};
+  el.innerHTML=`<div class="bi-dot ${b.status}"></div><div class="bi-info"><div class="bi-room">${b.room_name||b.room_id}</div><div class="bi-time">${b.start_time}–${b.end_time}</div><div class="bi-date">👤 ${b.full_name||'—'} · ${b.purpose||'—'}</div></div><span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
+  return el;
+}
+
+async function adminAct(bid, action, btn){
+  const card = document.getElementById('pc-'+bid);
+  card.style.opacity='.4'; card.style.pointerEvents='none';
+  haptic(action==='approve'?'success':'warning');
+  // Отправляем боту — он обновит базу и синхронизирует GitHub
+  if(tg) tg.sendData(JSON.stringify({admin_action: action, booking_id: bid}));
+  card.style.borderColor = action==='approve'?'rgba(46,204,113,.4)':'rgba(231,76,60,.3)';
+  const p = parseInt(document.getElementById('adm-p').textContent)||0;
+  document.getElementById('adm-p').textContent = Math.max(0,p-1);
+  // Перезагрузим данные через 3 сек (бот успеет обновить GitHub)
+  setTimeout(()=>renderAdminDash(), 3000);
+}
+
+// ── EDIT MODAL ──
+function openEdit(bid,date,start,end,purpose){
+  document.getElementById('edit-bid').value=bid;
+  document.getElementById('edit-date').value=date;
+  document.getElementById('edit-start').value=start;
+  document.getElementById('edit-end').value=end;
+  document.getElementById('edit-purpose').value=purpose;
+  document.getElementById('edit-modal').classList.add('on');
+}
+function closeModal(){document.getElementById('edit-modal').classList.remove('on')}
+async function saveEdit(){
+  const data = {
+    admin_action: 'edit',
+    booking_id:   parseInt(document.getElementById('edit-bid').value),
+    date:         document.getElementById('edit-date').value,
+    start_time:   document.getElementById('edit-start').value,
+    end_time:     document.getElementById('edit-end').value,
+    purpose:      document.getElementById('edit-purpose').value,
+  };
+  const card = document.getElementById('pc-'+data.booking_id);
+  if(card){card.style.opacity='.5';card.style.pointerEvents='none';}
+  closeModal(); haptic('success');
+  if(tg) tg.sendData(JSON.stringify(data));
+  setTimeout(()=>renderAdminDash(), 3000);
+}
+
+// ── NAVIGATION ──
+function btnOk(ok){document.getElementById('btn-main').disabled=!ok}
+
+function btnClick(){
+  if(S.view==='home') goView('date');
+  else if(S.view==='date') goView('time');
+  else if(S.view==='time'){
+    document.getElementById('cf-rm').textContent=S.roomName;
+    document.getElementById('cf-dt').textContent=S.dateStr;
+    document.getElementById('cf-tm').textContent=SLOTS[S.si]+' – '+SLOTS[S.ei];
+    document.getElementById('purpose-in').value='';
+    goView('purpose');btnOk(false);
+  }
+  else if(S.view==='purpose') submit();
+}
+
+function goBack(){
+  const prev={login:'splash',date:'home',time:'date',purpose:'time'};
+  if(prev[S.view])goView(prev[S.view]);
+}
+
+const PROGRESS_MAP={home:15,date:40,time:65,purpose:85,ok:100};
+
+function goView(v){
+  S.view=v;
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  const vm={splash:'sc-splash',login:'sc-login',home:'sc-home',date:'sc-date',time:'sc-time',purpose:'sc-purpose',ok:'sc-ok'};
+  document.getElementById(vm[v]).classList.add('on');
+
+  const topbar=document.getElementById('topbar');
+  const pbar=document.getElementById('pbar');
+  const botbar=document.getElementById('botbar');
+  const tabsbar=document.getElementById('tabs-bar');
+  const back=document.getElementById('tb-back');
+
+  if(v==='splash'||v==='login'){
+    topbar.style.display='none';pbar.style.display='none';
+    botbar.style.display='none';tabsbar.style.display='none';
+    return;
+  }
+
+  topbar.style.display='flex';pbar.style.display='block';
+  document.getElementById('pfill').style.width=(PROGRESS_MAP[v]||0)+'%';
+
+  back.classList.toggle('on',v!=='home'&&v!=='ok');
+
+  const titles={home:S.role==='admin'?'Администратор':'Добро пожаловать',date:'Выбор даты',time:'Выбор времени',purpose:'Детали заявки',ok:'Готово!'};
+  const subs={home:'Hayot Bank',date:S.roomName||'',time:S.dateStr||'',purpose:'Проверьте данные',ok:''};
+  document.getElementById('tb-t').textContent=titles[v]||'';
+  document.getElementById('tb-s').textContent=subs[v]||'';
+
+  if(v==='home'){
+    tabsbar.style.display='block';
+    if(S.tab==='book'){botbar.style.display='block';btnOk(!!S.roomId)}
+    else botbar.style.display='none';
+  } else {
+    tabsbar.style.display='none';
+    if(v==='ok') botbar.style.display='none';
+    else botbar.style.display='block';
+  }
+
+  const btxt={home:'Выбрать дату →',date:'Выбрать время →',time:'К деталям →',purpose:'✅ Отправить заявку'};
+  document.getElementById('btn-main').textContent=btxt[v]||'Далее →';
+
+  if(v==='date'){renderCal();if(S.date)renderSchedPanel();btnOk(!!S.date)}
+  if(v==='time'){renderSlots();if(S.si===null)btnOk(false)}
+  if(v==='purpose') chkPurpose();
+
+  document.querySelector('.page').scrollTop=0;
+}
+
+function submit(){
+  const data={room_id:S.roomId,room_name:S.roomName,date:S.date,start_time:SLOTS[S.si],end_time:SLOTS[S.ei],purpose:document.getElementById('purpose-in').value.trim()};
+  document.getElementById('ok-card').innerHTML=`
+    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${data.room_name}</div></div></div>
+    <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>`;
+  if(tg)tg.sendData(JSON.stringify(data));
+  goView('ok');haptic('success');
+}
+
+function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
+
+goView('splash');
+</script>
+</body>
+</html>
