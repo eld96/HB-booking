@@ -379,6 +379,19 @@ textarea::placeholder{color:var(--muted)}
 }
 .stat-num{font-size:28px;font-weight:900;color:var(--coral)}
 .stat-lbl{font-size:9px;color:var(--muted);margin-top:2px}
+/* ── DASHBOARD ── */
+.dash-section{
+  background:rgba(0,0,0,.2);border:1px solid var(--border);
+  border-radius:var(--r);padding:14px;margin-bottom:12px;
+}
+.dash-title{font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.5px;margin-bottom:10px}
+.dash-bar-row{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+.dash-bar-label{font-size:10px;color:var(--text);width:110px;flex-shrink:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dash-bar-track{flex:1;background:rgba(255,255,255,.07);border-radius:4px;height:14px;overflow:hidden}
+.dash-bar-fill{height:100%;border-radius:4px;transition:width .4s ease;background:var(--coral)}
+.dash-bar-fill.green{background:#2ecc71}
+.dash-bar-fill.yellow{background:#f1c40f}
+.dash-bar-val{font-size:10px;color:var(--coral);font-weight:700;width:18px;text-align:right;flex-shrink:0}
 .pending-card{
   background:rgba(0,0,0,.2);border:1px solid var(--border);
   border-radius:var(--r);padding:14px;margin-bottom:10px;animation:fadeUp .2s;
@@ -536,11 +549,25 @@ textarea::placeholder{color:var(--muted)}
       <div id="my-list"><div class="empty-st"><div class="ei">📭</div>Нет бронирований</div></div>
     </div>
     <div id="pane-admin" class="pad" style="display:none">
+      <!-- Статистика -->
       <div class="stat-row">
         <div class="stat-card"><div class="stat-num" id="adm-p">0</div><div class="stat-lbl">Ожидают</div></div>
         <div class="stat-card"><div class="stat-num" id="adm-t">0</div><div class="stat-lbl">Сегодня</div></div>
         <div class="stat-card"><div class="stat-num" id="adm-a">0</div><div class="stat-lbl">Всего</div></div>
       </div>
+
+      <!-- Дашборд: занятость по кабинетам -->
+      <div class="dash-section">
+        <div class="dash-title">📊 Занятость кабинетов (7 дней)</div>
+        <div id="dash-rooms"></div>
+      </div>
+
+      <!-- Дашборд: активность по дням -->
+      <div class="dash-section">
+        <div class="dash-title">📅 Бронирования по дням</div>
+        <div id="dash-days"></div>
+      </div>
+
       <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px">
         <div class="slabel" style="margin:0">Ожидают решения</div>
         <button onclick="renderAdminDash()" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.15);color:var(--muted);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;flex-shrink:0">🔄 Обновить</button>
@@ -944,14 +971,20 @@ function renderSlots(){
   // button i covers SLOTS[i] to SLOTS[i+1]
   // button label shows start of interval
   const g=document.getElementById('slot-grid');g.innerHTML='';
+  // Текущее время Ташкент UTC+5
+  const _nowTZ=new Date(Date.now()+5*3600000);
+  const _todayStr=_nowTZ.toISOString().slice(0,10);
+  const _nowMin=_nowTZ.getUTCHours()*60+_nowTZ.getUTCMinutes();
   for(let i=0;i<SLOTS.length-1;i++){
     const slot=SLOTS[i];
     const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start||slot>=b.end)});
+    const [sh,sm]=slot.split(':').map(Number);
+    const isPast=(S.date===_todayStr)&&(sh*60+sm<=_nowMin);
     const el=document.createElement('div');el.className='sl';
     const [h,m]=slot.split(':');
     el.innerHTML=`<span class="sl-h">${h}</span><span class="sl-m">${m}</span>`;
     el.dataset.i=i;
-    if(isBk){el.classList.add('bk')}
+    if(isBk||isPast){el.classList.add('bk')}
     else{el.onclick=()=>clickSlot(i,bkd)}
     g.appendChild(el);
   }
@@ -1091,7 +1124,6 @@ async function renderAdminDash(){
   let all = [];
   try {
     all = await fetchBookingsFromGH();
-    // Обновить booked для календаря тоже
     S.booked = all
       .filter(b => b.status !== 'rejected')
       .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
@@ -1102,14 +1134,14 @@ async function renderAdminDash(){
     return;
   }
 
-  const today = new Date().toISOString().slice(0,10);
+  // Ташкент UTC+5
+  const nowTZ = new Date(Date.now() + 5*3600000);
+  const today = nowTZ.toISOString().slice(0,10);
 
-  // Все ожидающие (любая дата)
   const pendingItems = all
     .filter(b => b.status === 'pending')
     .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
 
-  // Все предстоящие (сегодня и будущие, подтверждённые и ожидающие)
   const upcomingItems = all
     .filter(b => b.date >= today && b.status !== 'rejected')
     .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
@@ -1117,17 +1149,57 @@ async function renderAdminDash(){
   const todayCount = all.filter(b => b.date === today && b.status !== 'rejected').length;
 
   S.adminData = {
-    pending: pendingItems.length,
-    today:   todayCount,
-    total:   all.length,
-    pendingItems,
-    todayItems: upcomingItems,
+    pending: pendingItems.length, today: todayCount,
+    total: all.length, pendingItems, todayItems: upcomingItems,
   };
 
   document.getElementById('adm-p').textContent = pendingItems.length;
   document.getElementById('adm-t').textContent = todayCount;
   document.getElementById('adm-a').textContent = all.length;
 
+  // ── ДАШБОРД: занятость кабинетов за 7 дней ──
+  const days7 = [];
+  for(let i=0;i<7;i++){
+    const d = new Date(Date.now() + 5*3600000 - i*86400000);
+    days7.push(d.toISOString().slice(0,10));
+  }
+  const roomNames = {'GO_3':'Переговорная ГО', 'MINOR':'Офис Минор'};
+  const roomCounts = {};
+  Object.keys(roomNames).forEach(k => roomCounts[k] = 0);
+  all.forEach(b => {
+    if(days7.includes(b.date) && b.status !== 'rejected' && roomCounts[b.room_id] !== undefined)
+      roomCounts[b.room_id]++;
+  });
+  const maxRoom = Math.max(1, ...Object.values(roomCounts));
+  const dashRooms = document.getElementById('dash-rooms');
+  dashRooms.innerHTML = '';
+  Object.entries(roomCounts).forEach(([rid, cnt]) => {
+    dashRooms.innerHTML += `
+      <div class="dash-bar-row">
+        <div class="dash-bar-label">${roomNames[rid]||rid}</div>
+        <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${Math.round(cnt/maxRoom*100)}%"></div></div>
+        <div class="dash-bar-val">${cnt}</div>
+      </div>`;
+  });
+
+  // ── ДАШБОРД: активность по дням (последние 7 дней) ──
+  const dayLabels = ['Сег','Вчер','2д','3д','4д','5д','6д'];
+  const dayCounts = days7.map(d => all.filter(b => b.date === d && b.status !== 'rejected').length);
+  const maxDay = Math.max(1, ...dayCounts);
+  const dashDays = document.getElementById('dash-days');
+  dashDays.innerHTML = '';
+  days7.forEach((d, i) => {
+    const cnt = dayCounts[i];
+    const pct = Math.round(cnt/maxDay*100);
+    dashDays.innerHTML += `
+      <div class="dash-bar-row">
+        <div class="dash-bar-label" style="width:50px">${dayLabels[i]}</div>
+        <div class="dash-bar-track"><div class="dash-bar-fill green" style="width:${pct}%"></div></div>
+        <div class="dash-bar-val" style="color:#2ecc71">${cnt}</div>
+      </div>`;
+  });
+
+  // ── СПИСКИ ──
   const pl = document.getElementById('adm-pending-list'); pl.innerHTML='';
   if(!pendingItems.length){
     pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
