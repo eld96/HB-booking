@@ -99,7 +99,7 @@ body{
 .rc-desc{font-size:10px;color:var(--muted)}
 
 /* ── LOGIN ── */
-.login-wrap{padding:20px 16px;max-width:360px;margin:0 auto}
+.login-wrap{padding:20px 16px 40px;max-width:360px;margin:0 auto}
 .login-box{
   background:rgba(0,0,0,.2);border:1px solid var(--border);
   border-radius:var(--r);padding:24px;margin-top:20px;
@@ -330,6 +330,17 @@ textarea{
 }
 textarea::placeholder{color:var(--muted)}
 
+/* ── PARTICIPANTS ── */
+.participants-row{display:flex;gap:8px;flex-wrap:wrap}
+.part-btn{
+  flex:1;min-width:44px;padding:10px 4px;border-radius:9px;border:1.5px solid var(--border);
+  background:rgba(0,0,0,.2);color:var(--muted);font-size:14px;font-weight:600;cursor:pointer;
+  transition:.15s;font-family:inherit;
+}
+.part-btn.on{
+  background:rgba(232,89,58,.15);border-color:var(--coral);color:var(--coral);
+}
+
 /* ── CONFIRM CARD ── */
 .conf-card{
   background:rgba(0,0,0,.25);border:1px solid rgba(232,89,58,.3);
@@ -490,9 +501,9 @@ textarea::placeholder{color:var(--muted)}
         <div class="login-title">Вход для администратора</div>
         <div class="login-sub">Введите учётные данные</div>
         <div class="login-err" id="lerr">Неверный логин или пароль</div>
-        <div class="field"><label>Логин</label><input type="text" id="l-u" placeholder="Логин" autocomplete="off"></div>
-        <div class="field"><label>Пароль</label><input type="password" id="l-p" placeholder="Пароль"></div>
-        <button class="btn btn-p" onclick="tryLogin()">Войти →</button>
+        <div class="field"><label>Логин</label><input type="text" id="l-u" placeholder="Логин" autocomplete="off" inputmode="text" onkeydown="if(event.key==='Enter')document.getElementById('l-p').focus()"></div>
+        <div class="field"><label>Пароль</label><input type="password" id="l-p" placeholder="Пароль" onkeydown="if(event.key==='Enter')tryLogin()"></div>
+        <button class="btn btn-p" id="btn-login" style="margin-top:8px" onclick="tryLogin()">Войти →</button>
         <button class="btn btn-ghost" onclick="goView('splash')">← Назад</button>
       </div>
     </div>
@@ -605,7 +616,21 @@ textarea::placeholder{color:var(--muted)}
     <div class="pad">
       <div class="slabel">Цель встречи</div>
       <div class="ibox"><textarea id="purpose-in" placeholder="Укажите тему или цель встречи..." oninput="chkPurpose()"></textarea></div>
-      <div class="slabel" style="margin-top:14px">Ваша заявка</div>
+
+      <div class="slabel" style="margin-top:16px">Количество участников</div>
+      <div class="participants-row">
+        <button class="part-btn on" data-val="1" onclick="setPart(this)">1</button>
+        <button class="part-btn" data-val="2" onclick="setPart(this)">2</button>
+        <button class="part-btn" data-val="3" onclick="setPart(this)">3</button>
+        <button class="part-btn" data-val="4" onclick="setPart(this)">4</button>
+        <button class="part-btn" data-val="5" onclick="setPart(this)">5</button>
+        <button class="part-btn" data-val="6+" onclick="setPart(this)">6+</button>
+      </div>
+
+      <div class="slabel" style="margin-top:16px">Телефон <span style="font-weight:400;color:var(--muted);text-transform:none;letter-spacing:0;font-size:9px">— необязательно</span></div>
+      <div class="ibox"><input type="tel" id="phone-in" placeholder="+998 XX XXX XX XX" style="background:transparent;border:none;width:100%;padding:12px;color:var(--text);font-size:14px;outline:none;font-family:inherit"></div>
+
+      <div class="slabel" style="margin-top:16px">Ваша заявка</div>
       <div class="conf-card">
         <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val" id="cf-rm"></div></div></div>
         <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val" id="cf-dt"></div></div></div>
@@ -698,8 +723,12 @@ async function fetchBookingsFromGH(){
   });
   if(!resp.ok) throw new Error('GH API error ' + resp.status);
   const meta = await resp.json();
-  // Декодируем base64
-  const decoded = atob(meta.content.replace(/\n/g,''));
+  // Правильное декодирование UTF-8 base64 (поддержка кириллицы)
+  const b64 = meta.content.replace(/\n/g,'');
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for(let i=0;i<binary.length;i++) bytes[i]=binary.charCodeAt(i);
+  const decoded = new TextDecoder('utf-8').decode(bytes);
   return JSON.parse(decoded);
 }
 
@@ -730,23 +759,28 @@ loadBookingsFromGH();
 // ── ROLE ──
 function enterGuest(){S.role='guest';document.getElementById('tab-admin').style.display='none';initHome()}
 
-async function tryLogin(){
-  const u = document.getElementById('l-u').value.trim();
-  const p = document.getElementById('l-p').value;
-  const errEl = document.getElementById('lerr');
-  errEl.style.display='none';
+function tryLogin(){
+  try{
+    const u = (document.getElementById('l-u').value||'').trim();
+    const p = document.getElementById('l-p').value||'';
+    const errEl = document.getElementById('lerr');
+    errEl.style.display = 'none';
 
-  if(u === ADMIN_LOGIN && p === ADMIN_PASS){
-    S.role='admin';
-    document.getElementById('tab-admin').style.display='flex';
-    haptic('success');
-    initHome();
-    switchTab('admin');
-  } else {
-    errEl.textContent='Неверный логин или пароль';
-    errEl.style.display='block';errEl.classList.add('on');
-    haptic('error');
-    setTimeout(()=>errEl.classList.remove('on'),400);
+    if(u === 'hayot' && p === 'bank2024'){
+      S.role = 'admin';
+      document.getElementById('tab-admin').style.display = 'flex';
+      initHome();
+      switchTab('admin');
+      startAdminRefresh();
+      haptic('success');
+    } else {
+      errEl.style.display = 'block';
+      errEl.classList.add('on');
+      haptic('error');
+      setTimeout(()=>errEl.classList.remove('on'), 400);
+    }
+  } catch(e){
+    console.error('tryLogin error:', e);
   }
 }
 function initHome(){
@@ -760,6 +794,14 @@ function goSplash(){
   document.querySelectorAll('.rm-chk').forEach(e=>e.textContent='');
   document.querySelectorAll('.room-card').forEach(e=>e.classList.remove('on'));
   document.getElementById('tabs-bar').style.display='none';
+  // Сброс полей формы
+  try{document.getElementById('purpose-in').value='';}catch(e){}
+  try{document.getElementById('phone-in').value='';}catch(e){}
+  try{
+    document.querySelectorAll('.part-btn').forEach(b=>b.classList.remove('on'));
+    document.querySelector('.part-btn[data-val="1"]').classList.add('on');
+    S_participants=1;
+  }catch(e){}
   goView('splash');
 }
 
@@ -1024,6 +1066,13 @@ function setLit(w,on,cls){
 }
 
 // ── PURPOSE ──
+let S_participants = 1;
+function setPart(btn){
+  document.querySelectorAll('.part-btn').forEach(b=>b.classList.remove('on'));
+  btn.classList.add('on');
+  S_participants = btn.dataset.val;
+  haptic('light');
+}
 function chkPurpose(){btnOk(document.getElementById('purpose-in').value.trim().length>=3)}
 
 // ── MY BOOKINGS ──
@@ -1238,16 +1287,33 @@ function goView(v){
 }
 
 function submit(){
-  const data={room_id:S.roomId,room_name:S.roomName,date:S.date,start_time:SLOTS[S.si],end_time:SLOTS[S.ei],purpose:document.getElementById('purpose-in').value.trim()};
+  const data={
+    room_id:    S.roomId,
+    room_name:  S.roomName,
+    date:       S.date,
+    start_time: SLOTS[S.si],
+    end_time:   SLOTS[S.ei],
+    purpose:    document.getElementById('purpose-in').value.trim(),
+    participants: S_participants,
+    phone:      (document.getElementById('phone-in').value||'').trim(),
+  };
   document.getElementById('ok-card').innerHTML=`
     <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${data.room_name}</div></div></div>
     <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
-    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>`;
-  if(tg)tg.sendData(JSON.stringify(data));
-  goView('ok');haptic('success');
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>
+    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${data.participants}</div></div></div>`;
+  if(tg) tg.sendData(JSON.stringify(data));
+  goView('ok'); haptic('success');
 }
 
 function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
+
+// ── Авто-обновление для админа каждые 30 сек ──
+let _adminTimer = null;
+function startAdminRefresh(){
+  if(_adminTimer) clearInterval(_adminTimer);
+  _adminTimer = setInterval(()=>{ if(S.role==='admin'&&S.tab==='admin') renderAdminDash(); }, 30000);
+}
 
 goView('splash');
 </script>
