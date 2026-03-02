@@ -60,19 +60,18 @@
     "created_at": "2026-03-02 15:33:03"
   },
   {
+    "id": 5,
     "room_id": "GO_3",
     "room_name": "Переговорная ГО (3 этаж)",
     "date": "2026-03-11",
     "start_time": "10:00",
     "end_time": "11:30",
+    "full_name": "Сотрудник",
+    "username": null,
     "purpose": "Total",
     "participants": "1",
-    "phone": "",
-    "user_id": 0,
-    "username": "",
-    "full_name": "Сотрудник",
+    "phone": null,
     "status": "pending",
-    "created_at": "2026-03-02 15:35:55",
-    "id": 5
+    "created_at": "2026-03-02 15:35:55"
   }
 ]
