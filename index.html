@@ -688,6 +688,8 @@ const S={
 // ── GITHUB — источник данных ──
 // Используем GitHub API (не кэшируется в отличие от raw.githubusercontent.com)
 const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
+const ADMIN_LOGIN = 'hayot';
+const ADMIN_PASS  = 'bank2024';
 
 async function fetchBookingsFromGH(){
   // GitHub API возвращает файл в base64, всегда свежий
