@@ -750,12 +750,7 @@ const ADMIN_PASS  = 'bank2024';
 const _tk = ['ghp_8iNp7', 'SsM6lbRjxFITbaXR', 'fdA4yarav37mYQA'];
 const GH_TOKEN = _tk.join('');
 
-async function fetchBookingsFromGH(){
-  // Читаем публичный JSON без токена (запись делает только бот)
-  const resp = await fetch(GH_RAW + '?t=' + Date.now());
-  if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
-  return await resp.json();
-}
+// fetchBookingsFromGH и ghRead определены ниже (с кэшированием)
 
 // Загружаем актуальные данные при старте
 async function loadBookingsFromGH(){
@@ -1280,15 +1275,64 @@ function makeTCard(b){
 
 async function adminAct(bid, action, btn){
   const card = document.getElementById('pc-'+bid);
-  if(card){card.style.opacity='.4'; card.style.pointerEvents='none';}
-  haptic(action==='approve'?'success':'warning');
-  // Отправляем боту — он обновит Excel и синхронизирует GitHub
-  if(tg && tg.sendData){
-    tg.sendData(JSON.stringify({admin_action: action, booking_id: bid}));
+
+  // Мгновенный UI отклик
+  if(card){
+    card.style.opacity='.4';
+    card.style.pointerEvents='none';
+    card.style.transition='opacity .2s';
   }
-  const p = parseInt(document.getElementById('adm-p').textContent)||0;
-  document.getElementById('adm-p').textContent = Math.max(0,p-1);
-  setTimeout(()=>renderAdminDash(), 3000);
+  haptic(action==='approve'?'success':'warning');
+
+  const newStatus = action==='approve' ? 'approved' : 'rejected';
+  const icon  = action==='approve' ? '✅' : '❌';
+  const label = action==='approve' ? 'ПОДТВЕРЖДЕНО' : 'ОТКЛОНЕНО';
+
+  try {
+    // Читаем + обновляем GitHub одним вызовом
+    const {list, sha} = await ghRead();
+    const idx = list.findIndex(b=>b.id===bid);
+    if(idx===-1){ alert('Заявка не найдена'); return; }
+
+    const booking = list[idx];
+    list[idx].status = newStatus;
+
+    // Пишем в GitHub
+    const enc=new TextEncoder(); const byt=enc.encode(JSON.stringify(list,null,2));
+    let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
+    const putResp = await fetch(GH_API,{
+      method:'PUT',
+      headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+      body: JSON.stringify({message:`${newStatus} booking #${bid}`, content:btoa(bin), sha})
+    });
+    if(!putResp.ok) throw new Error('GitHub write error '+putResp.status);
+
+    // Уведомляем пользователя через Bot API
+    if(booking.user_id){
+      const ph = booking.phone ? `\n📞 ${booking.phone}` : '';
+      const msg = `${icon} <b>Ваша заявка #${bid} — ${label}!</b>\n\n🏢 ${booking.room_name}\n📅 ${booking.date}  ⏰ ${booking.start_time}–${booking.end_time}\n📝 ${booking.purpose}${ph}`;
+      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({chat_id: booking.user_id, text: msg, parse_mode:'HTML'})
+      }).catch(()=>{});
+    }
+
+    // Убираем карточку из списка мгновенно
+    if(card) card.remove();
+    const p = parseInt(document.getElementById('adm-p').textContent)||0;
+    document.getElementById('adm-p').textContent = Math.max(0,p-1);
+
+    // Показываем тост
+    showToast(`${icon} Заявка #${bid} ${label.toLowerCase()}`);
+
+    // Обновляем дашборд в фоне
+    setTimeout(()=>renderAdminDash(), 1500);
+
+  } catch(e){
+    console.error('adminAct error:', e);
+    if(card){card.style.opacity='1'; card.style.pointerEvents='';}
+    alert('Ошибка: '+e.message);
+  }
 }
 
 async function updateBookingStatus(bid, newStatus){
@@ -1481,16 +1525,6 @@ async function submit(){
 }
 
 // ── Запись в GitHub ──
-async function ghRead(){
-  const resp = await fetch(GH_API+'?t='+Date.now(), {
-    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
-  });
-  if(!resp.ok) throw new Error('GH read '+resp.status);
-  const meta = await resp.json();
-  const bytes = new Uint8Array(atob(meta.content.replace(/\n/g,'')).split('').map(c=>c.charCodeAt(0)));
-  return {list: JSON.parse(new TextDecoder('utf-8').decode(bytes)), sha: meta.sha};
-}
-
 async function ghWrite(newBooking){
   const {list, sha} = await ghRead();
   const maxId = list.reduce((m,b)=>Math.max(m,b.id||0),0);
@@ -1527,6 +1561,50 @@ async function notifyAdmins(b){
 }
 
 function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
+
+function showToast(msg, dur=2500){
+  let t = document.getElementById('_toast');
+  if(!t){
+    t = document.createElement('div'); t.id='_toast';
+    t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a3a4a;border:1px solid rgba(232,89,58,.4);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap';
+    document.body.appendChild(t);
+  }
+  t.textContent = msg;
+  t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(t._timer);
+  t._timer = setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; }, dur);
+}
+
+// ── Кэш данных для быстрой загрузки ──
+let _ghCache = null;
+let _ghCacheTime = 0;
+async function fetchBookingsFromGH(forceRefresh=false){
+  const now = Date.now();
+  // Кэш на 30 секунд — мгновенный отклик при повторных открытиях
+  if(!forceRefresh && _ghCache && (now - _ghCacheTime) < 30000){
+    return _ghCache;
+  }
+  const resp = await fetch(GH_RAW + '?t=' + now);
+  if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
+  _ghCache = await resp.json();
+  _ghCacheTime = now;
+  return _ghCache;
+}
+
+// ghRead всегда свежие данные (для записи)
+async function ghRead(){
+  const resp = await fetch(GH_API+'?t='+Date.now(), {
+    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
+  });
+  if(!resp.ok) throw new Error('GH read '+resp.status);
+  const meta = await resp.json();
+  const bytes = new Uint8Array(atob(meta.content.replace(/\n/g,'')).split('').map(c=>c.charCodeAt(0)));
+  const list = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+  // Обновляем кэш
+  _ghCache = list; _ghCacheTime = Date.now();
+  return {list, sha: meta.sha};
+}
+
 
 // ── Авто-обновление для админа каждые 30 сек ──
 let _adminTimer = null;
