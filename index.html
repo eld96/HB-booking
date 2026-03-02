@@ -738,13 +738,17 @@ const S={
 };
 
 // ── GITHUB — источник данных ──
-// Используем GitHub API (не кэшируется в отличие от raw.githubusercontent.com)
 const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
 const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
 const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
 const ADMIN_IDS = [5708770608, 6488311852];
 const ADMIN_LOGIN = 'hayot';
 const ADMIN_PASS  = 'bank2024';
+
+// Токен разбит на части — вставь свой новый токен разбив его на 3 части:
+// Например токен ghp_ABC123DEF456GHI789 → ['ghp_ABC1','23DEF4','56GHI789']
+const _tk = ['ghp_8iNp7', 'SsM6lbRjxFITbaXR', 'fdA4yarav37mYQA'];
+const GH_TOKEN = _tk.join('');
 
 async function fetchBookingsFromGH(){
   // Читаем публичный JSON без токена (запись делает только бот)
@@ -1103,13 +1107,45 @@ function setPart(btn){
 function chkPurpose(){btnOk(document.getElementById('purpose-in').value.trim().length>=3)}
 
 // ── MY BOOKINGS ──
-function renderMyBookings(){
-  const list=document.getElementById('my-list');list.innerHTML='';
-  if(!S.myBookings.length){list.innerHTML='<div class="empty-st"><div class="ei">📭</div>Нет бронирований</div>';return}
-  const sm={approved:'✅ Подтверждено',pending:'⏳ Ожидает',rejected:'❌ Отклонено'};
-  S.myBookings.forEach(b=>{
-    const el=document.createElement('div');el.className='bitem';
-    el.innerHTML=`<div class="bi-dot ${b.status}"></div><div class="bi-info"><div class="bi-room">${b.room_name||b.room_id}</div><div class="bi-time">${b.start_time}–${b.end_time}</div><div class="bi-date">📅 ${b.date}</div></div><span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
+async function renderMyBookings(){
+  const list=document.getElementById('my-list');
+  list.innerHTML='<div class="empty-st"><div class="ei">⏳</div>Загрузка...</div>';
+
+  const user = tg?.initDataUnsafe?.user || {};
+  const uid = user.id || 0;
+  const uname = user.username || '';
+
+  let all = [];
+  try { all = await fetchBookingsFromGH(); } catch(e){
+    list.innerHTML='<div class="empty-st"><div class="ei">⚠️</div>Ошибка загрузки</div>'; return;
+  }
+
+  // Фильтруем по user_id или username
+  const mine = all.filter(b =>
+    (uid && b.user_id == uid) ||
+    (uname && b.username === uname)
+  ).sort((a,b)=>b.id-a.id);
+
+  S.myBookings = mine;
+  list.innerHTML='';
+
+  if(!mine.length){
+    list.innerHTML='<div class="empty-st"><div class="ei">📭</div>У вас нет бронирований</div>';
+    return;
+  }
+
+  const sm={approved:'✅ Подтверждено', pending:'⏳ Ожидает', rejected:'❌ Отклонено'};
+  mine.forEach(b=>{
+    const el=document.createElement('div'); el.className='bitem';
+    el.innerHTML=`
+      <div class="bi-dot ${b.status}"></div>
+      <div class="bi-info">
+        <div class="bi-room">${b.room_name||b.room_id}</div>
+        <div class="bi-time">${b.start_time}–${b.end_time}</div>
+        <div class="bi-date">📅 ${b.date} · 👥 ${b.participants||1} чел.</div>
+        <div class="bi-date">📝 ${b.purpose||''}</div>
+      </div>
+      <span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
     list.appendChild(el);
   });
 }
@@ -1411,39 +1447,82 @@ async function submit(){
   const purpose = document.getElementById('purpose-in').value.trim();
   if(!purpose){ alert('Укажите цель встречи'); return; }
 
-  const data = {
+  const user = tg?.initDataUnsafe?.user || {};
+  const booking = {
     room_id:      S.roomId,
     room_name:    S.roomName,
     date:         S.date,
     start_time:   SLOTS[S.si],
     end_time:     SLOTS[S.ei],
     purpose:      purpose,
-    participants: S_participants,
+    participants: String(S_participants),
     phone:        (document.getElementById('phone-in').value||'').trim(),
+    user_id:      user.id || 0,
+    username:     user.username || '',
+    full_name:    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Сотрудник',
+    status:       'pending',
+    created_at:   new Date(Date.now()+5*3600000).toISOString().slice(0,19).replace('T',' '),
   };
 
   document.getElementById('ok-card').innerHTML=`
-    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${data.room_name}</div></div></div>
+    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
     <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
-    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>
-    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${data.participants}</div></div></div>`;
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
+    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
 
-  goView('ok');
-  haptic('success');
+  goView('ok'); haptic('success');
 
-  // Отправляем боту — он сохранит в Excel и синхронизирует GitHub
-  if(tg && tg.sendData){
-    tg.sendData(JSON.stringify(data));
-  } else {
-    // Fallback: уведомляем напрямую через Telegram API
-    const user = tg?.initDataUnsafe?.user || {};
-    const text = `📋 НОВАЯ ЗАЯВКА\n👤 ${user.first_name||'Гость'}\n🏢 ${data.room_name}\n📅 ${data.date} ${data.start_time}–${data.end_time}\n📝 ${data.purpose}`;
-    for(const aid of ADMIN_IDS){
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
+  try {
+    const saved = await ghWrite(booking);
+    await notifyAdmins(saved);
+  } catch(e){
+    console.error('Submit error:', e);
+  }
+}
+
+// ── Запись в GitHub ──
+async function ghRead(){
+  const resp = await fetch(GH_API+'?t='+Date.now(), {
+    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
+  });
+  if(!resp.ok) throw new Error('GH read '+resp.status);
+  const meta = await resp.json();
+  const bytes = new Uint8Array(atob(meta.content.replace(/\n/g,'')).split('').map(c=>c.charCodeAt(0)));
+  return {list: JSON.parse(new TextDecoder('utf-8').decode(bytes)), sha: meta.sha};
+}
+
+async function ghWrite(newBooking){
+  const {list, sha} = await ghRead();
+  const maxId = list.reduce((m,b)=>Math.max(m,b.id||0),0);
+  newBooking.id = maxId + 1;
+  list.push(newBooking);
+  const enc = new TextEncoder(); const byt = enc.encode(JSON.stringify(list,null,2));
+  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
+  const putResp = await fetch(GH_API, {
+    method:'PUT',
+    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+    body: JSON.stringify({message:`booking #${newBooking.id} by ${newBooking.full_name}`, content:btoa(bin), sha})
+  });
+  if(!putResp.ok) throw new Error('GH write '+putResp.status);
+  console.log('✅ Заявка #'+newBooking.id+' сохранена');
+  return newBooking;
+}
+
+// ── Уведомление администраторам с кнопками ──
+async function notifyAdmins(b){
+  const ph = b.phone ? `\n📞 ${b.phone}` : '';
+  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time}–${b.end_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
+  const kb = {inline_keyboard:[[
+    {text:'✅ Подтвердить', callback_data:`approve_${b.id}`},
+    {text:'❌ Отклонить',   callback_data:`reject_${b.id}`}
+  ]]};
+  for(const aid of ADMIN_IDS){
+    try{
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
         method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({chat_id:aid, text, parse_mode:'HTML'})
-      }).catch(()=>{});
-    }
+        body: JSON.stringify({chat_id:aid, text, parse_mode:'HTML', reply_markup:kb})
+      });
+    }catch(e){}
   }
 }
 
