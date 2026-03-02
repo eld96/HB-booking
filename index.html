@@ -494,7 +494,6 @@ textarea::placeholder{color:var(--muted)}
         <div class="field"><label>Пароль</label><input type="password" id="l-p" placeholder="Пароль"></div>
         <button class="btn btn-p" onclick="tryLogin()">Войти →</button>
         <button class="btn btn-ghost" onclick="goView('splash')">← Назад</button>
-        <button class="btn btn-ghost" onclick="goView('splash')">← Назад</button>
       </div>
     </div>
   </div>
@@ -531,9 +530,12 @@ textarea::placeholder{color:var(--muted)}
         <div class="stat-card"><div class="stat-num" id="adm-t">0</div><div class="stat-lbl">Сегодня</div></div>
         <div class="stat-card"><div class="stat-num" id="adm-a">0</div><div class="stat-lbl">Всего</div></div>
       </div>
-      <div class="slabel">Ожидают решения</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin:14px 0 8px">
+        <div class="slabel" style="margin:0">Ожидают решения</div>
+        <button onclick="renderAdminDash()" style="background:rgba(0,0,0,.2);border:1px solid rgba(255,255,255,.15);color:var(--muted);padding:5px 12px;border-radius:8px;font-size:12px;cursor:pointer;flex-shrink:0">🔄 Обновить</button>
+      </div>
       <div id="adm-pending-list"></div>
-      <div class="slabel" style="margin-top:16px">Все заявки сегодня</div>
+      <div class="slabel" style="margin-top:18px">Все предстоящие бронирования</div>
       <div id="adm-today-list"></div>
     </div>
   </div>
@@ -684,16 +686,25 @@ const S={
 };
 
 // ── GITHUB — источник данных ──
-const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
-const ADMIN_LOGIN = 'hayot';
-const ADMIN_PASS  = 'bank2024';
+// Используем GitHub API (не кэшируется в отличие от raw.githubusercontent.com)
+const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
+
+async function fetchBookingsFromGH(){
+  // GitHub API возвращает файл в base64, всегда свежий
+  const resp = await fetch(GH_API, {
+    headers: { 'Accept': 'application/vnd.github.v3+json' }
+  });
+  if(!resp.ok) throw new Error('GH API error ' + resp.status);
+  const meta = await resp.json();
+  // Декодируем base64
+  const decoded = atob(meta.content.replace(/\n/g,''));
+  return JSON.parse(decoded);
+}
 
 // Загружаем актуальные данные при старте
 async function loadBookingsFromGH(){
   try {
-    const resp = await fetch(GH_RAW + '?t=' + Date.now());
-    if(!resp.ok) return;
-    const all = await resp.json();
+    const all = await fetchBookingsFromGH();
     // Для календаря (занятые слоты)
     S.booked = all
       .filter(b => b.status !== 'rejected')
@@ -1030,54 +1041,59 @@ async function renderAdminDash(){
   if(S.role!=='admin') return;
   document.getElementById('adm-pending-list').innerHTML=
     '<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
+  document.getElementById('adm-today-list').innerHTML='';
 
+  let all = [];
   try {
-    const resp = await fetch(GH_RAW + '?t=' + Date.now());
-    const all  = await resp.json();
-    const today = new Date().toISOString().slice(0,10);
-
-    const pendingItems = all
-      .filter(b => b.status === 'pending')
-      .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
-
-    const todayItems = all
-      .filter(b => b.date === today && b.status !== 'rejected')
-      .sort((a,b) => a.start_time.localeCompare(b.start_time));
-
-    S.adminData = {
-      pending: pendingItems.length,
-      today:   todayItems.length,
-      total:   all.length,
-      pendingItems,
-      todayItems,
-    };
-    // Обновить booked для календаря
+    all = await fetchBookingsFromGH();
+    // Обновить booked для календаря тоже
     S.booked = all
       .filter(b => b.status !== 'rejected')
       .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
                   name:b.full_name||b.username||'—',status:b.status}));
   } catch(e){
     document.getElementById('adm-pending-list').innerHTML=
-      '<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Нет данных.<br>Убедитесь что бот запущен и bookings.json создан в репозитории.</div>';
+      '<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Ошибка загрузки.<br>Проверьте соединение.</div>';
     return;
   }
 
-  const d = S.adminData;
-  document.getElementById('adm-p').textContent = d.pending ?? 0;
-  document.getElementById('adm-t').textContent = d.today   ?? 0;
-  document.getElementById('adm-a').textContent = d.total   ?? 0;
+  const today = new Date().toISOString().slice(0,10);
+
+  // Все ожидающие (любая дата)
+  const pendingItems = all
+    .filter(b => b.status === 'pending')
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
+
+  // Все предстоящие (сегодня и будущие, подтверждённые и ожидающие)
+  const upcomingItems = all
+    .filter(b => b.date >= today && b.status !== 'rejected')
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
+
+  const todayCount = all.filter(b => b.date === today && b.status !== 'rejected').length;
+
+  S.adminData = {
+    pending: pendingItems.length,
+    today:   todayCount,
+    total:   all.length,
+    pendingItems,
+    todayItems: upcomingItems,
+  };
+
+  document.getElementById('adm-p').textContent = pendingItems.length;
+  document.getElementById('adm-t').textContent = todayCount;
+  document.getElementById('adm-a').textContent = all.length;
 
   const pl = document.getElementById('adm-pending-list'); pl.innerHTML='';
-  if(!d.pendingItems.length){
+  if(!pendingItems.length){
     pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
   }
-  d.pendingItems.forEach(b => pl.appendChild(makePCard(b)));
+  pendingItems.forEach(b => pl.appendChild(makePCard(b)));
 
   const tl2 = document.getElementById('adm-today-list'); tl2.innerHTML='';
-  if(!d.todayItems.length){
-    tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет заявок на сегодня</div>';
+  if(!upcomingItems.length){
+    tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет предстоящих бронирований</div>';
   }
-  d.todayItems.forEach(b => tl2.appendChild(makeTCard(b)));
+  upcomingItems.forEach(b => tl2.appendChild(makeTCard(b)));
 }
 
 function makePCard(b){
@@ -1096,7 +1112,16 @@ function makePCard(b){
 function makeTCard(b){
   const el=document.createElement('div');el.className='bitem';
   const sm={approved:'✅ Подтверждено',pending:'⏳ Ожидает',rejected:'❌ Отклонено'};
-  el.innerHTML=`<div class="bi-dot ${b.status}"></div><div class="bi-info"><div class="bi-room">${b.room_name||b.room_id}</div><div class="bi-time">${b.start_time}–${b.end_time}</div><div class="bi-date">👤 ${b.full_name||'—'} · ${b.purpose||'—'}</div></div><span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
+  const today = new Date().toISOString().slice(0,10);
+  const dateLabel = b.date === today ? '📅 Сегодня' : '📅 ' + b.date;
+  el.innerHTML=`
+    <div class="bi-dot ${b.status}"></div>
+    <div class="bi-info">
+      <div class="bi-room">${b.room_name||b.room_id} <span style="font-size:10px;color:var(--muted);font-weight:400">#${b.id}</span></div>
+      <div class="bi-time">${dateLabel} · ${b.start_time}–${b.end_time}</div>
+      <div class="bi-date">👤 ${b.full_name||'—'} · 📝 ${b.purpose||'—'}</div>
+    </div>
+    <span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
   return el;
 }
 
