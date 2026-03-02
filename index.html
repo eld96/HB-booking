@@ -713,6 +713,9 @@ const S={
 // ── GITHUB — источник данных ──
 // Используем GitHub API (не кэшируется в отличие от raw.githubusercontent.com)
 const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
+const GH_TOKEN = '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';
+const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
+const ADMIN_IDS = [5708770608, 6488311852];
 const ADMIN_LOGIN = 'hayot';
 const ADMIN_PASS  = 'bank2024';
 
@@ -1178,15 +1181,58 @@ function makeTCard(b){
 
 async function adminAct(bid, action, btn){
   const card = document.getElementById('pc-'+bid);
-  card.style.opacity='.4'; card.style.pointerEvents='none';
+  if(card){card.style.opacity='.4'; card.style.pointerEvents='none';}
   haptic(action==='approve'?'success':'warning');
-  // Отправляем боту — он обновит базу и синхронизирует GitHub
-  if(tg) tg.sendData(JSON.stringify({admin_action: action, booking_id: bid}));
-  card.style.borderColor = action==='approve'?'rgba(46,204,113,.4)':'rgba(231,76,60,.3)';
-  const p = parseInt(document.getElementById('adm-p').textContent)||0;
-  document.getElementById('adm-p').textContent = Math.max(0,p-1);
-  // Перезагрузим данные через 3 сек (бот успеет обновить GitHub)
-  setTimeout(()=>renderAdminDash(), 3000);
+
+  try {
+    await updateBookingStatus(bid, action==='approve'?'approved':'rejected');
+    const p = parseInt(document.getElementById('adm-p').textContent)||0;
+    document.getElementById('adm-p').textContent = Math.max(0,p-1);
+    setTimeout(()=>renderAdminDash(), 1500);
+  } catch(e){
+    console.error('adminAct error:', e);
+    if(card){card.style.opacity='1';card.style.pointerEvents='';}
+    alert('Ошибка: ' + e.message);
+  }
+}
+
+async function updateBookingStatus(bid, newStatus){
+  const resp = await fetch(GH_API, {
+    headers:{
+      'Authorization':'token '+GH_TOKEN,
+      'Accept':'application/vnd.github.v3+json'
+    }
+  });
+  if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
+  const meta = await resp.json();
+  const sha = meta.sha;
+  const b64 = meta.content.replace(/\n/g,'');
+  const bytes = new Uint8Array(atob(b64).split('').map(c=>c.charCodeAt(0)));
+  const bookings = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+
+  const idx = bookings.findIndex(b=>b.id===bid);
+  if(idx===-1) throw new Error('Заявка #'+bid+' не найдена');
+  bookings[idx].status = newStatus;
+
+  const content = JSON.stringify(bookings, null, 2);
+  const enc = new TextEncoder();
+  const byt = enc.encode(content);
+  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
+
+  const putResp = await fetch(GH_API, {
+    method:'PUT',
+    headers:{
+      'Authorization':'token '+GH_TOKEN,
+      'Accept':'application/vnd.github.v3+json',
+      'Content-Type':'application/json'
+    },
+    body: JSON.stringify({
+      message: 'Update booking #'+bid+' -> '+newStatus,
+      content: btoa(bin),
+      sha: sha
+    })
+  });
+  if(!putResp.ok) throw new Error('GitHub write error ' + putResp.status);
 }
 
 // ── EDIT MODAL ──
@@ -1199,20 +1245,36 @@ function openEdit(bid,date,start,end,purpose){
   document.getElementById('edit-modal').classList.add('on');
 }
 function closeModal(){document.getElementById('edit-modal').classList.remove('on')}
+
 async function saveEdit(){
+  const bid  = parseInt(document.getElementById('edit-bid').value);
   const data = {
-    admin_action: 'edit',
-    booking_id:   parseInt(document.getElementById('edit-bid').value),
-    date:         document.getElementById('edit-date').value,
-    start_time:   document.getElementById('edit-start').value,
-    end_time:     document.getElementById('edit-end').value,
-    purpose:      document.getElementById('edit-purpose').value,
+    date:    document.getElementById('edit-date').value,
+    start_time: document.getElementById('edit-start').value,
+    end_time:   document.getElementById('edit-end').value,
+    purpose:    document.getElementById('edit-purpose').value,
   };
-  const card = document.getElementById('pc-'+data.booking_id);
+  const card = document.getElementById('pc-'+bid);
   if(card){card.style.opacity='.5';card.style.pointerEvents='none';}
   closeModal(); haptic('success');
-  if(tg) tg.sendData(JSON.stringify(data));
-  setTimeout(()=>renderAdminDash(), 3000);
+
+  try {
+    const resp = await fetch(GH_API, {
+      headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
+    });
+    const meta = await resp.json();
+    const sha = meta.sha;
+    const b64 = meta.content.replace(/\n/g,'');
+    const bytes = new Uint8Array(atob(b64).split('').map(c=>c.charCodeAt(0)));
+    const bookings = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+    const idx = bookings.findIndex(b=>b.id===bid);
+    if(idx!==-1) Object.assign(bookings[idx], data);
+    const content = JSON.stringify(bookings,null,2);
+    const enc=new TextEncoder(); const byt=enc.encode(content);
+    let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
+    await fetch(GH_API,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},body:JSON.stringify({message:'Edit booking #'+bid,content:btoa(bin),sha})});
+    setTimeout(()=>renderAdminDash(), 1500);
+  } catch(e){ console.error('saveEdit error:',e); }
 }
 
 // ── NAVIGATION ──
@@ -1286,44 +1348,120 @@ function goView(v){
   document.querySelector('.page').scrollTop=0;
 }
 
-function submit(){
-  const data={
-    room_id:    S.roomId,
-    room_name:  S.roomName,
-    date:       S.date,
-    start_time: SLOTS[S.si],
-    end_time:   SLOTS[S.ei],
-    purpose:    document.getElementById('purpose-in').value.trim(),
+async function submit(){
+  const purpose = document.getElementById('purpose-in').value.trim();
+  if(!purpose){ alert('Укажите цель встречи'); return; }
+
+  const user = tg?.initDataUnsafe?.user || {};
+  const booking = {
+    room_id:      S.roomId,
+    room_name:    S.roomName,
+    date:         S.date,
+    start_time:   SLOTS[S.si],
+    end_time:     SLOTS[S.ei],
+    purpose:      purpose,
     participants: S_participants,
-    phone:      (document.getElementById('phone-in').value||'').trim(),
+    phone:        (document.getElementById('phone-in').value||'').trim(),
+    user_id:      user.id || 0,
+    username:     user.username || '',
+    full_name:    user.first_name ? (user.first_name + ' ' + (user.last_name||'')).trim() : (user.username||'Гость'),
+    status:       'pending',
+    created_at:   new Date().toISOString().slice(0,19).replace('T',' '),
   };
 
+  // Показываем карточку
   document.getElementById('ok-card').innerHTML=`
-    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${data.room_name}</div></div></div>
+    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
     <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
-    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${data.start_time} – ${data.end_time}</div></div></div>
-    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${data.participants}</div></div></div>`;
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
+    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
 
-  const payload = JSON.stringify(data);
+  goView('ok');
+  haptic('success');
 
-  // Проверяем что tg доступен
-  if(!tg){
-    alert('Ошибка: откройте через Telegram (кнопка внизу чата, не ссылка)');
-    return;
-  }
-
-  // Проверяем что sendData доступен (только в Reply Keyboard WebApp)
-  if(typeof tg.sendData !== 'function'){
-    alert('Ошибка: используйте кнопку снизу чата Telegram, не inline-кнопку');
-    return;
-  }
-
+  // Сохраняем напрямую в GitHub (без бота)
   try {
-    tg.sendData(payload);
-    goView('ok');
-    haptic('success');
+    await saveBookingToGitHub(booking);
+    // Уведомляем администраторов через Telegram Bot API
+    await notifyAdmins(booking);
   } catch(e) {
-    alert('Ошибка отправки: ' + e.message + '\n\nОткройте через кнопку внизу чата.');
+    console.error('Save error:', e);
+  }
+}
+
+async function saveBookingToGitHub(newBooking){
+  // Читаем текущий файл
+  const resp = await fetch(GH_API, {
+    headers: {
+      'Authorization': 'token ' + GH_TOKEN,
+      'Accept': 'application/vnd.github.v3+json'
+    }
+  });
+
+  let bookings = [];
+  let sha = '';
+
+  if(resp.ok){
+    const meta = await resp.json();
+    sha = meta.sha;
+    const b64 = meta.content.replace(/\n/g,'');
+    const bytes = new Uint8Array(atob(b64).split('').map(c=>c.charCodeAt(0)));
+    bookings = JSON.parse(new TextDecoder('utf-8').decode(bytes));
+  }
+
+  // Генерируем ID
+  const maxId = bookings.reduce((m,b)=>Math.max(m, b.id||0), 0);
+  newBooking.id = maxId + 1;
+
+  bookings.push(newBooking);
+
+  // Кодируем и записываем
+  const content = JSON.stringify(bookings, null, 2);
+  const encoder = new TextEncoder();
+  const bytes = encoder.encode(content);
+  let binary = '';
+  bytes.forEach(b => binary += String.fromCharCode(b));
+  const b64 = btoa(binary);
+
+  const body = {
+    message: 'New booking #' + newBooking.id + ' from ' + newBooking.full_name,
+    content: b64,
+  };
+  if(sha) body.sha = sha;
+
+  const putResp = await fetch(GH_API, {
+    method: 'PUT',
+    headers: {
+      'Authorization': 'token ' + GH_TOKEN,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body)
+  });
+
+  if(!putResp.ok){
+    const err = await putResp.text();
+    throw new Error('GitHub PUT failed: ' + err);
+  }
+
+  console.log('✅ Booking #' + newBooking.id + ' saved to GitHub');
+  return newBooking;
+}
+
+async function notifyAdmins(b){
+  const text = `📋 НОВАЯ ЗАЯВКА #${b.id}\n\n👤 ${b.full_name}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time}–${b.end_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${b.phone ? '\n📞 '+b.phone : ''}`;
+  for(const adminId of ADMIN_IDS){
+    try {
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+        method: 'POST',
+        headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({
+          chat_id: adminId,
+          text: text,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch(e){ console.log('Notify error:', e); }
   }
 }
 
