@@ -761,7 +761,7 @@ async function loadBookingsFromGH(){
       .filter(b => b.status !== 'rejected')
       .map(b => ({
         room_id: b.room_id, date: b.date,
-        start: b.start_time, end: b.end_time,
+        start: b.start_time_time, end: b.end_time_time,
         name: b.full_name || b.username || '—',
         status: b.status
       }));
@@ -898,14 +898,14 @@ function pickDate(ds,d,m,y,el){
 
 function renderSchedPanel(){
   const body=document.getElementById('sched-body');body.innerHTML='';
-  const bkd=S.booked.filter(b=>b.date===S.date);
+  const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
   if(!bkd.length){
     body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>';
     appendQuickSlots(body,bkd);return;
   }
   bkd.forEach(b=>{
     const el=document.createElement('div');el.className='sitem';
-    el.innerHTML=`<div class="si-time">${b.start}–${b.end}</div><div class="si-who">👤 ${b.name||'—'}</div><div class="si-purpose">${b.purpose||''}</div>`;
+    el.innerHTML=`<div class="si-time">${b.start_time}–${b.end_time}</div><div class="si-who">👤 ${b.name||'—'}</div><div class="si-purpose">${b.purpose||''}</div>`;
     body.appendChild(el);
   });
   appendQuickSlots(body,bkd);
@@ -929,7 +929,7 @@ function findFreeSlots(bkd){
   const r=[];
   for(let i=0;i<SLOTS.length-2;i++){
     const s=SLOTS[i],e=SLOTS[i+2];
-    if(!bkd.some(b=>!(e<=b.start||s>=b.end))){
+    if(!bkd.some(b=>!(e<=b.start_time||s>=b.end_time))){
       r.push({label:s+'–'+e,si:i,ei:i+2});
       if(r.length>=3)break;
     }
@@ -947,7 +947,7 @@ function findFreeSlots(bkd){
 // Highlight: buttons from S.si to S.ei-1 are highlighted (those are the 30-min blocks)
 
 function renderSlots(){
-  const bkd=S.booked.filter(b=>b.date===S.date);
+  const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
 
   // timeline booked segs
   const tl=document.getElementById('tl');
@@ -956,8 +956,8 @@ function renderSlots(){
   // timeline spans 09:00 to 18:00 = 9 hours = 18 intervals of 30min
   const totalMins=9*60; // 09:00 to 18:00
   bkd.forEach(b=>{
-    const sMin=timeToMins(b.start)-540; // offset from 09:00
-    const eMin=timeToMins(b.end)-540;
+    const sMin=timeToMins(b.start_time)-540; // offset from 09:00
+    const eMin=timeToMins(b.end_time)-540;
     if(sMin>=0&&eMin>sMin){
       const seg=document.createElement('div');seg.className='tl-bk';
       seg.style.left=(sMin/totalMins*100)+'%';
@@ -976,7 +976,7 @@ function renderSlots(){
   const _nowMin=_nowTZ.getUTCHours()*60+_nowTZ.getUTCMinutes();
   for(let i=0;i<SLOTS.length-1;i++){
     const slot=SLOTS[i];
-    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start||slot>=b.end)});
+    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start_time||slot>=b.end_time)});
     const [sh,sm]=slot.split(':').map(Number);
     const isPast=(S.date===_todayStr)&&(sh*60+sm<=_nowMin);
     const el=document.createElement('div');el.className='sl';
@@ -1067,7 +1067,7 @@ function drawSelSeg(){
 function chkCfl(bkd){
   if(S.si===null||S.ei===null)return;
   const start=SLOTS[S.si],end=SLOTS[S.ei];
-  const cx=bkd.find(b=>!(end<=b.start||start>=b.end));
+  const cx=bkd.find(b=>!(end<=b.start_time||start>=b.end_time));
   const mins=(S.ei-S.si)*30;
   const dur=mins>=60?Math.floor(mins/60)+'ч'+(mins%60?' '+mins%60+'мин':''):mins+' мин';
   if(cx){
@@ -1136,7 +1136,7 @@ async function renderMyBookings(){
       <div class="bi-dot ${b.status}"></div>
       <div class="bi-info">
         <div class="bi-room">${b.room_name||b.room_id}</div>
-        <div class="bi-time">${b.start_time}–${b.end_time}</div>
+        <div class="bi-time">${b.start_time_time}–${b.end_time_time}</div>
         <div class="bi-date">📅 ${b.date} · 👥 ${b.participants||1} чел.</div>
         <div class="bi-date">📝 ${b.purpose||''}</div>
       </div>
@@ -1157,7 +1157,7 @@ async function renderAdminDash(){
     all = await fetchBookingsFromGH();
     S.booked = all
       .filter(b => b.status !== 'rejected')
-      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
+      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time_time,end:b.end_time_time,
                   name:b.full_name||b.username||'—',status:b.status}));
   } catch(e){
     document.getElementById('adm-pending-list').innerHTML=
@@ -1171,11 +1171,11 @@ async function renderAdminDash(){
 
   const pendingItems = all
     .filter(b => b.status === 'pending')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time_time));
 
   const upcomingItems = all
     .filter(b => b.date >= today && b.status !== 'rejected')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time_time));
 
   const todayCount = all.filter(b => b.date === today && b.status !== 'rejected').length;
 
@@ -1248,11 +1248,11 @@ function makePCard(b){
   const el=document.createElement('div');el.className='pending-card';el.id='pc-'+b.id;
   el.innerHTML=`
     <div class="pc-head"><span>${b.room_id==='GO_3'?'🏛':'🏢'}</span><span class="pc-room">${b.room_name||b.room_id}</span><span class="pc-id">#${b.id}</span></div>
-    <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time}–${b.end_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
+    <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time_time}–${b.end_time_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
     <div class="pc-btns">
       <button class="pc-btn pc-ok" onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
       <button class="pc-btn pc-no" onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
-      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
+      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time_time}','${b.end_time_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
     </div>`;
   return el;
 }
@@ -1266,7 +1266,7 @@ function makeTCard(b){
     <div class="bi-dot ${b.status}"></div>
     <div class="bi-info">
       <div class="bi-room">${b.room_name||b.room_id} <span style="font-size:10px;color:var(--muted);font-weight:400">#${b.id}</span></div>
-      <div class="bi-time">${dateLabel} · ${b.start_time}–${b.end_time}</div>
+      <div class="bi-time">${dateLabel} · ${b.start_time_time}–${b.end_time_time}</div>
       <div class="bi-date">👤 ${b.full_name||'—'} · 📝 ${b.purpose||'—'}</div>
     </div>
     <span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
@@ -1517,10 +1517,27 @@ async function submit(){
   goView('ok'); haptic('success');
 
   try {
+    // ✅ Основной путь: отправляем данные в бота (он сохранит в Excel + синхронизирует в GitHub + пришлёт статус/ID)
+    if(tg && typeof tg.sendData === 'function'){
+      tg.sendData(JSON.stringify(booking));
+      // мгновенно покажем в интерфейсе как "pending" (ID подтянется после синхронизации)
+      booking.id = booking.id || ('tmp_' + Date.now());
+      S.booked = S.booked || [];
+      S.booked.push({...booking});
+      showToast('Заявка отправлена (⏳ ожидает подтверждения)');
+      try{ renderCal(); if(S.date) renderSchedPanel(); if(S.view==='time') renderSlots(); renderMyBookings(); }catch(e){}
+      return;
+    }
+
+    // Fallback (если WebApp открыт вне Telegram): запись напрямую в GitHub
     const saved = await ghWrite(booking);
     await notifyAdmins(saved);
+    try{ await refreshBooked(true); }catch(e){}
+    try{ renderCal(); if(S.date) renderSchedPanel(); if(S.view==='time') renderSlots(); renderMyBookings(); }catch(e){}
+    showToast('Заявка #' + saved.id + ' отправлена (⏳ ожидает подтверждения)');
   } catch(e){
     console.error('Submit error:', e);
+    showToast('Ошибка отправки заявки', 3500);
   }
 }
 
@@ -1545,7 +1562,7 @@ async function ghWrite(newBooking){
 // ── Уведомление администраторам с кнопками ──
 async function notifyAdmins(b){
   const ph = b.phone ? `\n📞 ${b.phone}` : '';
-  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time}–${b.end_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
+  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time_time}–${b.end_time_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
   const kb = {inline_keyboard:[[
     {text:'✅ Подтвердить', callback_data:`approve_${b.id}`},
     {text:'❌ Отклонить',   callback_data:`reject_${b.id}`}
@@ -1584,12 +1601,34 @@ async function fetchBookingsFromGH(forceRefresh=false){
   if(!forceRefresh && _ghCache && (now - _ghCacheTime) < 30000){
     return _ghCache;
   }
-  const resp = await fetch(GH_RAW + '?t=' + now);
+  const resp = await fetch(GH_RAW + '?t=' + now, {cache:'no-store'});
   if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
   _ghCache = await resp.json();
   _ghCacheTime = now;
   return _ghCache;
 }
+
+
+async function refreshBooked(force=false){
+  try{
+    const list = await fetchBookingsFromGH(force);
+    // учитываем pending + approved, скрываем rejected
+    S.booked = (Array.isArray(list)?list:[])
+      .filter(b=>b && b.status!=='rejected')
+      .map(b=>({
+        ...b,
+        // нормализуем типы
+        user_id: (b.user_id===undefined||b.user_id===null)?'':String(b.user_id),
+        chat_id: (b.chat_id===undefined||b.chat_id===null)?'':String(b.chat_id),
+        room_id: b.room_id||'',
+      }));
+  }catch(e){
+    S.booked = S.booked || [];
+  }
+}
+
+
+
 
 // ghRead всегда свежие данные (для записи)
 async function ghRead(){
@@ -1612,6 +1651,28 @@ function startAdminRefresh(){
   if(_adminTimer) clearInterval(_adminTimer);
   _adminTimer = setInterval(()=>{ if(S.role==='admin'&&S.tab==='admin') renderAdminDash(); }, 30000);
 }
+
+
+// ── Авто-обновление бронирований для всех (чтобы статусы/занятость подтягивались без ожидания кэша) ──
+let _userTimer = null;
+function startUserRefresh(){
+  if(_userTimer) clearInterval(_userTimer);
+  _userTimer = setInterval(async ()=>{
+    try{
+      await refreshBooked(true);
+      // если пользователь на экранах календаря/времени — обновим занятость
+      if(S.view==='date'){ renderCal(); if(S.date) renderSchedPanel(); }
+      if(S.view==='time'){ renderSlots(); }
+      // если открыт список "Мои" или админ-даш — обновим
+      try{ renderMyBookings(); }catch(e){}
+      if(S.role==='admin' && S.tab==='admin'){ try{ renderAdminDash(); }catch(e){} }
+    }catch(e){}
+  }, 15000);
+}
+
+
+refreshBooked(true).then(()=>{ try{renderCal();}catch(e){} });
+startUserRefresh();
 
 goView('splash');
 </script>
