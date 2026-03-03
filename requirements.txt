@@ -1,0 +1,35 @@
+# HB Booking — фикс навсегда (без GitHub API в браузере)
+
+## Почему это «навсегда»
+GitHub Pages + запись в GitHub из браузера всегда будет давать:
+- кэш/задержки
+- sha-конфликты (409)
+- зависания на подтверждении
+- дубли
+
+Эта версия убирает это полностью:
+- WebApp НЕ пишет в GitHub
+- WebApp пишет/читает через сервер API
+- Сервер хранит данные в SQLite и экспортирует Excel
+- Статусы и конфликты считаются на сервере (не обманешь)
+
+## Быстрый старт локально
+1) Открой Anaconda Prompt
+2) cd в папку проекта
+3) pip install -r requirements.txt
+4) set BOT_TOKEN=... (опционально)
+   set ADMINS=5708770608,6488311852
+   set ADMIN_PASSWORD=1234
+   set WEBAPP_URL=http://127.0.0.1:8000/
+5) python app.py
+6) Открой http://127.0.0.1:8000/
+
+## Для телефона (HTTPS)
+Самый простой способ — Render:
+- Build: pip install -r requirements.txt
+- Start: python app.py
+- Env:
+  BOT_TOKEN=...
+  ADMINS=5708770608,6488311852
+  ADMIN_PASSWORD=1234
+  WEBAPP_URL=https://<service>.onrender.com/
