@@ -738,7 +738,8 @@ const S={
 };
 
 // ── GITHUB — источник данных ──
-const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
+const GH_API = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
+const GH_RAW = GH_API; // совместимость
 const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
 const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
 const ADMIN_IDS = [5708770608, 6488311852];
@@ -747,9 +748,7 @@ const ADMIN_PASS  = 'bank2024';
 
 // Токен разбит на части — вставь свой новый токен разбив его на 3 части:
 // Например токен ghp_ABC123DEF456GHI789 → ['ghp_ABC1','23DEF4','56GHI789']
-const _tk = ['ghp_8iNp7', 'SsM6lbRjxFITbaXR', 'fdA4yarav37mYQA'];
-const GH_TOKEN = _tk.join('');
-
+// ✅ GitHub token убран из фронта (запись делает бот)
 // fetchBookingsFromGH и ghRead определены ниже (с кэшированием)
 
 // Загружаем актуальные данные при старте
@@ -761,7 +760,7 @@ async function loadBookingsFromGH(){
       .filter(b => b.status !== 'rejected')
       .map(b => ({
         room_id: b.room_id, date: b.date,
-        start: b.start_time_time, end: b.end_time_time,
+        start: b.start_time, end: b.end_time,
         name: b.full_name || b.username || '—',
         status: b.status
       }));
@@ -1136,7 +1135,7 @@ async function renderMyBookings(){
       <div class="bi-dot ${b.status}"></div>
       <div class="bi-info">
         <div class="bi-room">${b.room_name||b.room_id}</div>
-        <div class="bi-time">${b.start_time_time}–${b.end_time_time}</div>
+        <div class="bi-time">${b.start_time}–${b.end_time}</div>
         <div class="bi-date">📅 ${b.date} · 👥 ${b.participants||1} чел.</div>
         <div class="bi-date">📝 ${b.purpose||''}</div>
       </div>
@@ -1157,7 +1156,7 @@ async function renderAdminDash(){
     all = await fetchBookingsFromGH();
     S.booked = all
       .filter(b => b.status !== 'rejected')
-      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time_time,end:b.end_time_time,
+      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
                   name:b.full_name||b.username||'—',status:b.status}));
   } catch(e){
     document.getElementById('adm-pending-list').innerHTML=
@@ -1171,11 +1170,11 @@ async function renderAdminDash(){
 
   const pendingItems = all
     .filter(b => b.status === 'pending')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time_time));
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
 
   const upcomingItems = all
     .filter(b => b.date >= today && b.status !== 'rejected')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time_time));
+    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
 
   const todayCount = all.filter(b => b.date === today && b.status !== 'rejected').length;
 
@@ -1248,11 +1247,11 @@ function makePCard(b){
   const el=document.createElement('div');el.className='pending-card';el.id='pc-'+b.id;
   el.innerHTML=`
     <div class="pc-head"><span>${b.room_id==='GO_3'?'🏛':'🏢'}</span><span class="pc-room">${b.room_name||b.room_id}</span><span class="pc-id">#${b.id}</span></div>
-    <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time_time}–${b.end_time_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
+    <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time}–${b.end_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
     <div class="pc-btns">
       <button class="pc-btn pc-ok" onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
       <button class="pc-btn pc-no" onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
-      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time_time}','${b.end_time_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
+      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
     </div>`;
   return el;
 }
@@ -1266,7 +1265,7 @@ function makeTCard(b){
     <div class="bi-dot ${b.status}"></div>
     <div class="bi-info">
       <div class="bi-room">${b.room_name||b.room_id} <span style="font-size:10px;color:var(--muted);font-weight:400">#${b.id}</span></div>
-      <div class="bi-time">${dateLabel} · ${b.start_time_time}–${b.end_time_time}</div>
+      <div class="bi-time">${dateLabel} · ${b.start_time}–${b.end_time}</div>
       <div class="bi-date">👤 ${b.full_name||'—'} · 📝 ${b.purpose||'—'}</div>
     </div>
     <span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
@@ -1541,41 +1540,14 @@ async function submit(){
   }
 }
 
-// ── Запись в GitHub ──
-async function ghWrite(newBooking){
-  const {list, sha} = await ghRead();
-  const maxId = list.reduce((m,b)=>Math.max(m,b.id||0),0);
-  newBooking.id = maxId + 1;
-  list.push(newBooking);
-  const enc = new TextEncoder(); const byt = enc.encode(JSON.stringify(list,null,2));
-  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
-  const putResp = await fetch(GH_API, {
-    method:'PUT',
-    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-    body: JSON.stringify({message:`booking #${newBooking.id} by ${newBooking.full_name}`, content:btoa(bin), sha})
-  });
-  if(!putResp.ok) throw new Error('GH write '+putResp.status);
-  console.log('✅ Заявка #'+newBooking.id+' сохранена');
-  return newBooking;
+// ── Запись в GitHub отключена: запись делает бот ──
+async function ghWrite(){
+  throw new Error('Запись в GitHub отключена на фронте. Отправьте заявку через Telegram WebApp.');
 }
 
-// ── Уведомление администраторам с кнопками ──
-async function notifyAdmins(b){
-  const ph = b.phone ? `\n📞 ${b.phone}` : '';
-  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time_time}–${b.end_time_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
-  const kb = {inline_keyboard:[[
-    {text:'✅ Подтвердить', callback_data:`approve_${b.id}`},
-    {text:'❌ Отклонить',   callback_data:`reject_${b.id}`}
-  ]]};
-  for(const aid of ADMIN_IDS){
-    try{
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({chat_id:aid, text, parse_mode:'HTML', reply_markup:kb})
-      });
-    }catch(e){}
-  }
-}
+
+// ── Уведомления админам отключены на фронте: делает бот ──
+async function notifyAdmins(){ return; }
 
 function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
 
@@ -1595,7 +1567,7 @@ function showToast(msg, dur=2500){
 // ── Кэш данных для быстрой загрузки ──
 let _ghCache = null;
 let _ghCacheTime = 0;
-async function fetchBookingsFromGH(forceRefresh=false){
+async async function fetchBookingsFromGH(forceRefresh=false){
   const now = Date.now();
   // Кэш на 30 секунд — мгновенный отклик при повторных открытиях
   if(!forceRefresh && _ghCache && (now - _ghCacheTime) < 30000){
