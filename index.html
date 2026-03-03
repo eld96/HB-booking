@@ -738,9 +738,14 @@ const S={
 };
 
 // ── GITHUB — источник данных ──
-const GH_API = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
-const GH_RAW = GH_API; // совместимость
-const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
+const GH_OWNER  = 'eld96';
+const GH_REPO   = 'HB-booking';
+const GH_BRANCH = 'main';
+const GH_PATH   = 'bookings.json';
+// Raw (для чтения на GitHub Pages)
+const GH_RAW = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_BRANCH}/${GH_PATH}`;
+// API (нужно ТОЛЬКО если включите fallback-запись из браузера)
+const GH_API = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}`;
 const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
 const ADMIN_IDS = [5708770608, 6488311852];
 const ADMIN_LOGIN = 'hayot';
