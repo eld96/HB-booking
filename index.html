@@ -700,38 +700,36 @@ textarea::placeholder{color:var(--muted)}
 </div>
 
 <script>
-// ==================== HAYOT BANK BOOKING WEBAPP v14 ====================
-// Архитектура: все данные через Bot API (/api/bookings)
-// Секреты (токены) хранятся ТОЛЬКО на сервере бота
-// =======================================================================
 
 const tg = window.Telegram?.WebApp;
 if(tg){ tg.expand(); try{ tg.setHeaderColor('#0e3a4a') }catch(e){} }
 
-// ── КОНФИГУРАЦИЯ ────────────────────────────────────────────────────────
-// Замените на реальный URL вашего сервера с ботом (нужен HTTPS для prod)
-// Для разработки: https://xxxx.ngrok.io  или  http://localhost:8080
-const API_URL    = 'http://YOUR_SERVER_IP:8080';   // ← ИЗМЕНИТЬ
-const GH_RAW     = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
-const ADMIN_IDS  = [5708770608, 6488311852];  // только для отображения, бот проверяет сам
-
-// Определяем администратора по Telegram user id (не нужен пароль)
-const _tgUser    = tg?.initDataUnsafe?.user || {};
-const IS_ADMIN   = ADMIN_IDS.includes(_tgUser.id);
-
-// ── СЛОТЫ ВРЕМЕНИ ──────────────────────────────────────────────────────
+// ── TIME SLOTS: 09:00–18:00 шагом 30 мин ──
 const SLOTS = [];
-for(let h=9; h<=18; h++){ SLOTS.push(p2(h)+':00'); if(h<18) SLOTS.push(p2(h)+':30'); }
+for(let h=9; h<=18; h++){
+  SLOTS.push(p2(h)+':00');
+  if(h<18) SLOTS.push(p2(h)+':30');
+}
 function p2(n){ return String(n).padStart(2,'0') }
 
-// Заполняем select-ы в модальном окне редактирования
-const es=document.getElementById('edit-start'), ee=document.getElementById('edit-end');
-SLOTS.forEach(s=>{ es.innerHTML+=`<option value="${s}">${s}</option>`; ee.innerHTML+=`<option value="${s}">${s}</option>`; });
+// Наполняем селекты в модале редактирования
+const _es = document.getElementById('edit-start');
+const _ee = document.getElementById('edit-end');
+SLOTS.forEach(s => {
+  _es.innerHTML += `<option value="${s}">${s}</option>`;
+  _ee.innerHTML += `<option value="${s}">${s}</option>`;
+});
 
 const MONTHS   = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
 const MONTHS_S = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
 
-// ── СОСТОЯНИЕ ───────────────────────────────────────────────────────────
+// ── GITHUB — только чтение (бот — единственный писатель) ──
+const GH_RAW    = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
+const ADMIN_IDS = [5708770608, 6488311852];
+const ADMIN_LOGIN = 'hayot';
+const ADMIN_PASS  = 'bank2024';
+
+// ── Состояние ──
 const S = {
   view:'splash', tab:'book', role:'guest',
   roomId:null, roomName:null,
@@ -739,87 +737,47 @@ const S = {
   calY: new Date().getFullYear(), calM: new Date().getMonth(),
   si:null, ei:null, selEnd:false,
   booked:[], myBookings:[],
-  adminData:{pending:0, today:0, total:0, pendingItems:[], todayItems:[]},
+  adminData:{ pending:0, today:0, total:0, pendingItems:[], todayItems:[] },
 };
+let S_participants = 1;
 
-// ── HTTP API КЛИЕНТ ─────────────────────────────────────────────────────
-let _apiCache       = null;
-let _apiCacheTime   = 0;
-const CACHE_TTL_MS  = 20000;  // 20 сек кэш для чтения
-
-async function apiFetch(force=false){
-  const now = Date.now();
-  if(!force && _apiCache && (now - _apiCacheTime) < CACHE_TTL_MS) return _apiCache;
-  try{
-    const r = await fetch(API_URL + '/api/bookings');
-    if(!r.ok) throw new Error('API ' + r.status);
-    _apiCache = await r.json(); _apiCacheTime = now;
-    return _apiCache;
-  }catch(e){
-    // Фолбэк: пробуем GitHub Raw
-    try{
-      const r2 = await fetch(GH_RAW + '?t=' + now, {cache:'no-store'});
-      if(!r2.ok) throw new Error('GH ' + r2.status);
-      _apiCache = await r2.json(); _apiCacheTime = now;
-      return _apiCache;
-    }catch(e2){
-      return _apiCache || [];
-    }
-  }
-}
-
-async function apiPost(path, body){
-  const r = await fetch(API_URL + path, {
-    method:'POST',
-    headers:{'Content-Type':'application/json', 'X-Init-Data': tg?.initData||''},
-    body: JSON.stringify(body)
-  });
-  return {ok: r.ok, status: r.status, data: await r.json().catch(()=>({}))};
-}
-
-async function apiPatch(path, body){
-  const r = await fetch(API_URL + path, {
-    method:'PATCH',
-    headers:{'Content-Type':'application/json', 'X-Init-Data': tg?.initData||''},
-    body: JSON.stringify(body)
-  });
-  return {ok: r.ok, status: r.status, data: await r.json().catch(()=>({}))};
-}
-
-// ── РОЛИ ────────────────────────────────────────────────────────────────
+// ── ROLE ──
 function enterGuest(){
   S.role = 'guest';
-  // Если пользователь является администратором — показываем вкладку управления
-  if(IS_ADMIN){
-    S.role = 'admin';
-    document.getElementById('tab-admin').style.display = 'flex';
-  } else {
-    document.getElementById('tab-admin').style.display = 'none';
-  }
+  document.getElementById('tab-admin').style.display = 'none';
   initHome();
 }
 
 function tryLogin(){
-  // Теперь авторизация только для ручного входа (если открыт вне Telegram)
-  const u = (document.getElementById('l-u').value||'').trim();
-  const p = document.getElementById('l-p').value||'';
   const errEl = document.getElementById('lerr');
   errEl.style.display = 'none';
-  // Только для просмотра вне Telegram (API всё равно проверяет initData)
-    if(u === 'hayot' if(u === 'hayot' && p === 'bank2024'){if(u === 'hayot' && p === 'bank2024'){ p === 'bank2024'){
-    S.role = 'admin';
-    document.getElementById('tab-admin').style.display = 'flex';
-    initHome(); switchTab('admin'); startAdminRefresh(); haptic('success');
+  errEl.classList.remove('on');
+
+  const u = (document.getElementById('l-u').value||'').trim();
+  const p =  document.getElementById('l-p').value||'';
+  if(u === ADMIN_LOGIN && p === ADMIN_PASS){
+    _enterAdmin();
   } else {
-    errEl.style.display = 'block'; errEl.classList.add('on'); haptic('error');
+    errEl.style.display = 'block';
+    errEl.classList.add('on');
+    haptic('error');
     setTimeout(()=>errEl.classList.remove('on'), 400);
   }
 }
 
+function _enterAdmin(){
+  S.role = 'admin';
+  document.getElementById('tab-admin').style.display = 'flex';
+  initHome();
+  switchTab('admin');
+  startAdminRefresh();
+  haptic('success');
+}
+
 function initHome(){
-  document.getElementById('tabs-bar').style.display='block';
+  document.getElementById('tabs-bar').style.display = 'block';
   goView('home');
-  switchTab(S.role==='admin'?'admin':'book');
+  switchTab(S.role === 'admin' ? 'admin' : 'book');
 }
 
 function goSplash(){
@@ -827,7 +785,7 @@ function goSplash(){
   S.si=null; S.ei=null; S.selEnd=false;
   document.querySelectorAll('.rm-chk').forEach(e=>e.textContent='');
   document.querySelectorAll('.room-card').forEach(e=>e.classList.remove('on'));
-  document.getElementById('tabs-bar').style.display='none';
+  document.getElementById('tabs-bar').style.display = 'none';
   try{ document.getElementById('purpose-in').value=''; }catch(e){}
   try{ document.getElementById('phone-in').value=''; }catch(e){}
   try{
@@ -838,7 +796,7 @@ function goSplash(){
   goView('splash');
 }
 
-// ── ВКЛАДКИ ──────────────────────────────────────────────────────────────
+// ── TABS ──
 function switchTab(t){
   S.tab = t;
   ['book','my','admin'].forEach(id=>{
@@ -848,12 +806,12 @@ function switchTab(t){
   document.getElementById('tab-'+t).classList.add('on');
   document.getElementById('pane-'+t).style.display = 'block';
   if(t==='book'){ document.getElementById('botbar').style.display='block'; btnOk(!!S.roomId); document.getElementById('btn-main').textContent='Выбрать дату →'; }
-  else document.getElementById('botbar').style.display='none';
+  else document.getElementById('botbar').style.display = 'none';
   if(t==='my')    renderMyBookings();
   if(t==='admin') renderAdminDash();
 }
 
-// ── КАБИНЕТЫ ─────────────────────────────────────────────────────────────
+// ── ROOM ──
 function pickRoom(id,name){
   S.roomId=id; S.roomName=name;
   document.querySelectorAll('.room-card').forEach(c=>c.classList.remove('on'));
@@ -864,7 +822,7 @@ function pickRoom(id,name){
   btnOk(true); haptic('light');
 }
 
-// ── КАЛЕНДАРЬ ────────────────────────────────────────────────────────────
+// ── CALENDAR ──
 function renderCal(){
   const y=S.calY, m=S.calM;
   document.getElementById('cal-title').textContent = MONTHS[m]+' '+y;
@@ -893,26 +851,30 @@ function renderCal(){
 
 function prevM(){
   const t=new Date(); S.calM--;
-  if(S.calM<0){S.calM=11;S.calY--}
-  if(S.calY<t.getFullYear()||(S.calY===t.getFullYear()&&S.calM<t.getMonth())){S.calM++;if(S.calM>11){S.calM=0;S.calY++}}
+  if(S.calM<0){ S.calM=11; S.calY--; }
+  if(S.calY<t.getFullYear()||(S.calY===t.getFullYear()&&S.calM<t.getMonth())){ S.calM++; if(S.calM>11){S.calM=0;S.calY++;} }
   renderCal();
 }
-function nextM(){ S.calM++; if(S.calM>11){S.calM=0;S.calY++} renderCal(); }
+function nextM(){ S.calM++; if(S.calM>11){S.calM=0;S.calY++;} renderCal(); }
 
 function pickDate(ds,d,m,y,el){
   S.date=ds; S.dateStr=d+' '+MONTHS_S[m]+' '+y;
   document.querySelectorAll('.cd.picked').forEach(e=>e.classList.remove('picked'));
   el.classList.add('picked');
-  document.getElementById('sched-dt').textContent=S.dateStr;
-  renderSchedPanel(); btnOk(true);
-  document.getElementById('btn-main').textContent='Выбрать время →';
+  document.getElementById('sched-dt').textContent = S.dateStr;
+  renderSchedPanel();
+  btnOk(true);
+  document.getElementById('btn-main').textContent = 'Выбрать время →';
   haptic('light');
 }
 
 function renderSchedPanel(){
   const body=document.getElementById('sched-body'); body.innerHTML='';
   const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
-  if(!bkd.length){ body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>'; appendQuickSlots(body,bkd); return; }
+  if(!bkd.length){
+    body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>';
+    appendQuickSlots(body,bkd); return;
+  }
   bkd.forEach(b=>{
     const el=document.createElement('div'); el.className='sitem';
     el.innerHTML=`<div class="si-time">${b.start_time}–${b.end_time}</div><div class="si-who">👤 ${b.name||'—'}</div><div class="si-purpose">${b.purpose||''}</div>`;
@@ -922,11 +884,15 @@ function renderSchedPanel(){
 }
 
 function appendQuickSlots(body,bkd){
-  const qs=findFreeSlots(bkd); if(!qs.length) return;
+  const qs=findFreeSlots(bkd);
+  if(!qs.length) return;
   const lbl=document.createElement('div'); lbl.className='qlabel'; lbl.textContent='Свободные окна'; body.appendChild(lbl);
   const wrap=document.createElement('div'); wrap.className='quick-slots';
-  qs.forEach(q=>{ const b=document.createElement('div'); b.className='qs'; b.textContent=q.label;
-    b.onclick=()=>{S.si=q.si;S.ei=q.ei;goView('time')}; wrap.appendChild(b); });
+  qs.forEach(q=>{
+    const b=document.createElement('div'); b.className='qs'; b.textContent=q.label;
+    b.onclick=()=>{ S.si=q.si; S.ei=q.ei; goView('time'); };
+    wrap.appendChild(b);
+  });
   body.appendChild(wrap);
 }
 
@@ -934,14 +900,12 @@ function findFreeSlots(bkd){
   const r=[];
   for(let i=0;i<SLOTS.length-2;i++){
     const s=SLOTS[i], e=SLOTS[i+2];
-    if(!bkd.some(b=>!(e<=b.start_time||s>=b.end_time))){
-      r.push({label:s+'–'+e,si:i,ei:i+2}); if(r.length>=3) break;
-    }
+    if(!bkd.some(b=>!(e<=b.start_time||s>=b.end_time))){ r.push({label:s+'–'+e, si:i, ei:i+2}); if(r.length>=3) break; }
   }
   return r;
 }
 
-// ── СЛОТЫ ВРЕМЕНИ ────────────────────────────────────────────────────────
+// ── TIME SLOTS ──
 function renderSlots(){
   const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
   const tl=document.getElementById('tl');
@@ -961,14 +925,15 @@ function renderSlots(){
   const _nowMin=_nowTZ.getUTCHours()*60+_nowTZ.getUTCMinutes();
   for(let i=0;i<SLOTS.length-1;i++){
     const slot=SLOTS[i];
-    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start_time||slot>=b.end_time);});
+    const isBk=bkd.some(b=>{ const se=SLOTS[i+1]; return !(se<=b.start_time||slot>=b.end_time); });
     const [sh,sm]=slot.split(':').map(Number);
     const isPast=(S.date===_todayStr)&&(sh*60+sm<=_nowMin);
     const el=document.createElement('div'); el.className='sl';
     const [h,m]=slot.split(':');
     el.innerHTML=`<span class="sl-h">${h}</span><span class="sl-m">${m}</span>`;
     el.dataset.i=i;
-    if(isBk||isPast){ el.classList.add('bk'); } else { el.onclick=()=>clickSlot(i,bkd); }
+    if(isBk||isPast){ el.classList.add('bk'); }
+    else{ el.onclick=()=>clickSlot(i,bkd); }
     g.appendChild(el);
   }
   if(S.si!==null&&S.ei!==null){
@@ -1002,14 +967,16 @@ function clickSlot(i,bkd){
   } else {
     const newEi=i+1;
     if(newEi<=S.si){
-      S.si=i; S.selEnd=true; setTV('s',SLOTS[i]); setTV('e','--:--');
+      S.si=i; S.selEnd=true;
+      setTV('s',SLOTS[i]); setTV('e','--:--');
       setLit('s',true); setLit('e',false);
       document.getElementById('tl-sel').style.display='none';
       document.getElementById('dur').classList.remove('on');
       document.getElementById('cfl').classList.remove('on');
       hlSlots(); return;
     }
-    S.ei=newEi; S.selEnd=false; setTV('e',SLOTS[S.ei]);
+    S.ei=newEi; S.selEnd=false;
+    setTV('e',SLOTS[S.ei]);
     setLit('s',false); setLit('e',true,'done');
     document.getElementById('sl-mode').innerHTML='✓ Выбрано. Нажмите <b>Далее</b> или выберите заново';
     hlSlots(); drawSelSeg(); chkCfl(bkd);
@@ -1041,7 +1008,7 @@ function chkCfl(bkd){
   const dur=mins>=60?Math.floor(mins/60)+'ч'+(mins%60?' '+mins%60+'мин':''):mins+' мин';
   if(cx){
     document.getElementById('cfl').classList.add('on');
-    document.getElementById('cfl-t').textContent=`Время уже забронировано. Выберите другой промежуток.`;
+    document.getElementById('cfl-t').textContent=`Время ${cx.start_time}–${cx.end_time} уже забронировано. Выберите другой промежуток.`;
     document.getElementById('dur').classList.remove('on');
     btnOk(false); haptic('error');
   } else {
@@ -1054,174 +1021,130 @@ function chkCfl(bkd){
 
 function timeToMins(t){ const[h,m]=t.split(':').map(Number); return h*60+m; }
 function setTV(w,v){ document.getElementById('tv'+w).textContent=v; }
-function setLit(w,on,cls){ const el=document.getElementById('tb'+w); el.classList.remove('lit','done'); if(on) el.classList.add(cls||'lit'); }
+function setLit(w,on,cls){
+  const el=document.getElementById('tb'+w);
+  el.classList.remove('lit','done');
+  if(on) el.classList.add(cls||'lit');
+}
 
-// ── УЧАСТНИКИ ────────────────────────────────────────────────────────────
-let S_participants = 1;
+// ── PURPOSE ──
 function setPart(btn){
   document.querySelectorAll('.part-btn').forEach(b=>b.classList.remove('on'));
-  btn.classList.add('on'); S_participants=btn.dataset.val; haptic('light');
+  btn.classList.add('on');
+  S_participants=btn.dataset.val;
+  haptic('light');
 }
 function chkPurpose(){ btnOk(document.getElementById('purpose-in').value.trim().length>=3); }
 
-// ── МОИ ЗАЯВКИ ───────────────────────────────────────────────────────────
+// ── MY BOOKINGS ──
+// Показывает заявки гостя: GitHub (актуальные статусы) + localStorage (только что отправленные)
 async function renderMyBookings(){
   const list=document.getElementById('my-list');
   list.innerHTML='<div class="empty-st"><div class="ei">⏳</div>Загрузка...</div>';
 
-  const uid   = String(_tgUser.id || '');
-  const uname = _tgUser.username || '';
+  const tgUser = tg?.initDataUnsafe?.user || {};
+  const uid    = tgUser.id ? String(tgUser.id) : null;
+  const uname  = tgUser.username || '';
 
-  // Добавляем временные заявки из localStorage пока не пришли с сервера
-  const tmpKey = 'hb_pending_' + (uid || '0');
-  let tmpItems = [];
-  try{ tmpItems = JSON.parse(localStorage.getItem(tmpKey)||'[]'); }catch(e){}
+  // 1. Загружаем данные с GitHub (бот пишет сюда после каждого изменения)
+  let ghBookings = [];
+  try{
+    const all = await fetchBookingsFromGH(true);
+    ghBookings = all.filter(b =>
+      (uid   && String(b.user_id) === uid) ||
+      (uname && b.username        === uname)
+    );
+  }catch(e){}
 
-  let all = [];
-  try{ all = await apiFetch(true); }catch(e){}
-
-  // Фильтруем свои заявки
-  const serverIds = new Set(all.map(b=>String(b.id)));
-  const mine = all.filter(b=>(uid&&b.user_id==uid)||(uname&&b.username===uname))
-                  .sort((a,b)=>b.id-a.id);
-
-  // Добавляем временные (которых ещё нет на сервере)
-  const pending_local = tmpItems.filter(t=>!serverIds.has(String(t._tmpId)));
-  const combined = [...pending_local.map(t=>({...t,status:'pending',_local:true})), ...mine];
-
-  // Очищаем localStorage от тех что уже пришли с сервера
-  if(tmpItems.length > 0){
-    const fresh = tmpItems.filter(t=>!serverIds.has(String(t._tmpId)));
-    try{ localStorage.setItem(tmpKey, JSON.stringify(fresh.slice(-20))); }catch(e){}
+  // 2. Временные заявки из localStorage (только что отправлены, бот ещё не синхронизировал)
+  let tmpBookings = [];
+  if(uid){
+    try{
+      tmpBookings = JSON.parse(localStorage.getItem('hb_my_tmp_'+uid)||'[]');
+    }catch(e){}
   }
 
-  S.myBookings = mine;
+  // 3. Объединяем: tmp добавляем только если их ещё нет в GitHub
+  const merged = [...ghBookings];
+  tmpBookings.forEach(tmp=>{
+    const synced = ghBookings.some(b=>
+      b.room_id===tmp.room_id && b.date===tmp.date && b.start_time===tmp.start_time
+    );
+    if(!synced) merged.push({...tmp, status:'pending', _tmp:true});
+  });
+
+  // 4. Удаляем из localStorage записи которые уже попали в GitHub
+  if(uid){
+    try{
+      const fresh = tmpBookings.filter(tmp=>
+        !ghBookings.some(b=>b.room_id===tmp.room_id&&b.date===tmp.date&&b.start_time===tmp.start_time)
+      );
+      localStorage.setItem('hb_my_tmp_'+uid, JSON.stringify(fresh.slice(-30)));
+    }catch(e){}
+  }
+
+  S.myBookings = merged;
   list.innerHTML = '';
 
-  if(!combined.length){
-    list.innerHTML='<div class="empty-st"><div class="ei">📭</div>У вас нет бронирований</div>'; return;
+  if(!merged.length){
+    list.innerHTML='<div class="empty-st"><div class="ei">📭</div>У вас нет бронирований</div>';
+    return;
   }
 
+  merged.sort((a,b)=>((b.date||'')+(b.start_time||'')).localeCompare((a.date||'')+(a.start_time||'')));
+
   const sm={approved:'✅ Подтверждено', pending:'⏳ Ожидает', rejected:'❌ Отклонено'};
-  combined.forEach(b=>{
+  merged.forEach(b=>{
     const el=document.createElement('div'); el.className='bitem';
+    const syncTag = b._tmp ? '<span style="font-size:9px;color:var(--gold);margin-left:4px">⏱ синхр.</span>' : '';
     el.innerHTML=`
-      <div class="bi-dot ${b.status}"></div>
+      <div class="bi-dot ${b.status||'pending'}"></div>
       <div class="bi-info">
-        <div class="bi-room">${b.room_name||b.room_id||'—'}${b._local?' <span style="font-size:9px;color:var(--gold)">(отправляется...)</span>':''}</div>
+        <div class="bi-room">${b.room_name||b.room_id||'—'}${syncTag}</div>
         <div class="bi-time">${b.start_time}–${b.end_time}</div>
         <div class="bi-date">📅 ${b.date} · 👥 ${b.participants||1} чел.</div>
-        <div class="bi-date">📝 ${b.purpose||''}</div>
+        ${b.purpose?`<div class="bi-date">📝 ${b.purpose}</div>`:''}
       </div>
-      <span class="badge ${b.status}">${sm[b.status]||b.status}</span>`;
+      <span class="badge ${b.status||'pending'}">${sm[b.status]||'⏳ Ожидает'}</span>`;
     list.appendChild(el);
   });
 }
 
-// ── ОБНОВЛЕНИЕ ДАННЫХ ──────────────────────────────────────────────────
-async function refreshBooked(force=false){
-  try{
-    const list = await apiFetch(force);
-    S.booked = (Array.isArray(list)?list:[])
-      .filter(b=>b&&b.status!=='rejected')
-      .map(b=>({...b, room_id:b.room_id||'', user_id:String(b.user_id||''), chat_id:String(b.chat_id||''),
-                name: b.full_name||b.username||'—', start_time:b.start_time, end_time:b.end_time}));
-  }catch(e){ S.booked=S.booked||[]; }
-}
-
-// ── ОТПРАВКА ЗАЯВКИ ────────────────────────────────────────────────────
-async function submit(){
-  const purpose = document.getElementById('purpose-in').value.trim();
-  if(!purpose){ alert('Укажите цель встречи'); return; }
-
-  const booking = {
-    room_id:      S.roomId,
-    room_name:    S.roomName,
-    date:         S.date,
-    start_time:   SLOTS[S.si],
-    end_time:     SLOTS[S.ei],
-    purpose:      purpose,
-    participants: String(S_participants),
-    phone:        (document.getElementById('phone-in').value||'').trim(),
-    user_id:      _tgUser.id || 0,
-    username:     _tgUser.username || '',
-    full_name:    [_tgUser.first_name, _tgUser.last_name].filter(Boolean).join(' ') || _tgUser.username || 'Сотрудник',
-    status:       'pending',
-  };
-
-  // Показываем экран подтверждения сразу (оптимистичный UI)
-  document.getElementById('ok-card').innerHTML=`
-    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
-    <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
-    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
-    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
-  goView('ok'); haptic('success');
-
-  try{
-    // Сохраняем временно в localStorage для "Мои заявки"
-    const tmpKey = 'hb_pending_' + (booking.user_id || '0');
-    const tmpId  = Date.now();
-    booking._tmpId = tmpId;
-    try{
-      const arr = JSON.parse(localStorage.getItem(tmpKey)||'[]');
-      arr.push(booking); localStorage.setItem(tmpKey, JSON.stringify(arr.slice(-20)));
-    }catch(e){}
-
-    // Отправляем в API бота
-    const res = await apiPost('/api/bookings', booking);
-    if(res.ok){
-      // Успешно сохранено — инвалидируем кэш и обновляем данные
-      _apiCache = null;
-      await refreshBooked(true);
-      showToast('✅ Заявка #' + (res.data.id||'') + ' отправлена');
-    } else if(res.status === 409){
-      showToast('🚫 Конфликт времени — выберите другой слот', 4000);
-      goView('time');
-    } else {
-      // Фолбэк: если API недоступен, отправляем через Telegram sendData
-      if(tg && typeof tg.sendData === 'function'){
-        tg.sendData(JSON.stringify(booking));
-        // sendData() закрывает WebApp — бот обработает и пришлёт уведомление
-      } else {
-        showToast('Ошибка отправки. Попробуйте снова.', 4000);
-      }
-    }
-  }catch(e){
-    // Фолбэк через sendData
-    if(tg && typeof tg.sendData === 'function'){
-      tg.sendData(JSON.stringify(booking));
-    } else {
-      showToast('Ошибка: ' + e.message, 4000);
-    }
-  }
-}
-
-// ── АДМИН ДАШБОРД ──────────────────────────────────────────────────────
+// ── ADMIN ──
 async function renderAdminDash(){
   if(S.role!=='admin') return;
-  document.getElementById('adm-pending-list').innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
+  document.getElementById('adm-pending-list').innerHTML=
+    '<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
   document.getElementById('adm-today-list').innerHTML='';
 
   let all=[];
   try{
-    all = await apiFetch(true);
-    S.booked = all.filter(b=>b.status!=='rejected')
-      .map(b=>({room_id:b.room_id,date:b.date,start_time:b.start_time,end_time:b.end_time,
-                name:b.full_name||b.username||'—',status:b.status}));
+    all = await fetchBookingsFromGH(true);
+    S.booked = all.filter(b=>b.status!=='rejected').map(b=>({
+      ...b,
+      room_id:    b.room_id||'',
+      start_time: b.start_time||'',
+      end_time:   b.end_time||'',
+      name:       b.full_name||b.username||'—',
+      user_id:    String(b.user_id||''),
+    }));
   }catch(e){
-    document.getElementById('adm-pending-list').innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Ошибка загрузки.</div>'; return;
+    document.getElementById('adm-pending-list').innerHTML=
+      '<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Ошибка загрузки.<br>Проверьте соединение.</div>';
+    return;
   }
 
   const nowTZ  = new Date(Date.now()+5*3600000);
   const today  = nowTZ.toISOString().slice(0,10);
-  const pending = all.filter(b=>b.status==='pending').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
-  const upcoming= all.filter(b=>b.date>=today&&b.status!=='rejected').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
+  const pendingItems  = all.filter(b=>b.status==='pending').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
+  const upcomingItems = all.filter(b=>b.date>=today&&b.status!=='rejected').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
+  const todayCount    = all.filter(b=>b.date===today&&b.status!=='rejected').length;
 
-  document.getElementById('adm-p').textContent = pending.length;
-  document.getElementById('adm-t').textContent = all.filter(b=>b.date===today&&b.status!=='rejected').length;
+  document.getElementById('adm-p').textContent = pendingItems.length;
+  document.getElementById('adm-t').textContent = todayCount;
   document.getElementById('adm-a').textContent = all.length;
 
-  // Дашборд
+  // Дашборд: занятость кабинетов за 7 дней
   const days7=[]; for(let i=0;i<7;i++){ const d=new Date(Date.now()+5*3600000-i*86400000); days7.push(d.toISOString().slice(0,10)); }
   const roomNames={'GO_3':'Переговорная ГО','MINOR':'Офис Минор'};
   const roomCounts={}; Object.keys(roomNames).forEach(k=>roomCounts[k]=0);
@@ -1231,21 +1154,21 @@ async function renderAdminDash(){
   Object.entries(roomCounts).forEach(([rid,cnt])=>{
     dashRooms.innerHTML+=`<div class="dash-bar-row"><div class="dash-bar-label">${roomNames[rid]||rid}</div><div class="dash-bar-track"><div class="dash-bar-fill" style="width:${Math.round(cnt/maxRoom*100)}%"></div></div><div class="dash-bar-val">${cnt}</div></div>`;
   });
+
+  // Дашборд: активность по дням
   const dayLabels=['Сег','Вчер','2д','3д','4д','5д','6д'];
   const dayCounts=days7.map(d=>all.filter(b=>b.date===d&&b.status!=='rejected').length);
   const maxDay=Math.max(1,...dayCounts);
   const dashDays=document.getElementById('dash-days'); dashDays.innerHTML='';
-  days7.forEach((d,i)=>{
-    dashDays.innerHTML+=`<div class="dash-bar-row"><div class="dash-bar-label" style="width:50px">${dayLabels[i]}</div><div class="dash-bar-track"><div class="dash-bar-fill green" style="width:${Math.round(dayCounts[i]/maxDay*100)}%"></div></div><div class="dash-bar-val" style="color:#2ecc71">${dayCounts[i]}</div></div>`;
-  });
+  days7.forEach((d,i)=>{ const cnt=dayCounts[i]; dashDays.innerHTML+=`<div class="dash-bar-row"><div class="dash-bar-label" style="width:50px">${dayLabels[i]}</div><div class="dash-bar-track"><div class="dash-bar-fill green" style="width:${Math.round(cnt/maxDay*100)}%"></div></div><div class="dash-bar-val" style="color:#2ecc71">${cnt}</div></div>`; });
 
   const pl=document.getElementById('adm-pending-list'); pl.innerHTML='';
-  if(!pending.length) pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
-  pending.forEach(b=>pl.appendChild(makePCard(b)));
+  if(!pendingItems.length){ pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>'; }
+  pendingItems.forEach(b=>pl.appendChild(makePCard(b)));
 
   const tl2=document.getElementById('adm-today-list'); tl2.innerHTML='';
-  if(!upcoming.length) tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет предстоящих бронирований</div>';
-  upcoming.forEach(b=>tl2.appendChild(makeTCard(b)));
+  if(!upcomingItems.length){ tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет предстоящих бронирований</div>'; }
+  upcomingItems.forEach(b=>tl2.appendChild(makeTCard(b)));
 }
 
 function makePCard(b){
@@ -1254,9 +1177,9 @@ function makePCard(b){
     <div class="pc-head"><span>${b.room_id==='GO_3'?'🏛':'🏢'}</span><span class="pc-room">${b.room_name||b.room_id}</span><span class="pc-id">#${b.id}</span></div>
     <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time}–${b.end_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
     <div class="pc-btns">
-      <button class="pc-btn pc-ok"   onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
-      <button class="pc-btn pc-no"   onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
-      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
+      <button class="pc-btn pc-ok" onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
+      <button class="pc-btn pc-no" onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
+      <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\'")}')">✏️</button>
     </div>`;
   return el;
 }
@@ -1277,75 +1200,54 @@ function makeTCard(b){
   return el;
 }
 
-// ── ДЕЙСТВИЯ АДМИНИСТРАТОРА ────────────────────────────────────────────
+// adminAct отправляет решение боту через tg.sendData() — бот обновляет Excel и уведомляет пользователя
 async function adminAct(bid, action, btn){
+  if(!tg || typeof tg.sendData !== 'function'){
+    showToast('Управление доступно только через Telegram');
+    return;
+  }
+  const label = action==='approve' ? 'ПОДТВЕРДИТЬ' : 'ОТКЛОНИТЬ';
+  if(!confirm(`${label} заявку #${bid}?`)) return;
+
   const card=document.getElementById('pc-'+bid);
   if(card){ card.style.opacity='.4'; card.style.pointerEvents='none'; }
   haptic(action==='approve'?'success':'warning');
+  showToast('Отправка решения...');
 
-  try{
-    const res = await apiPost('/api/bookings/'+bid+'/status', {action});
-    if(res.ok){
-      if(card) card.remove();
-      const p=parseInt(document.getElementById('adm-p').textContent)||0;
-      document.getElementById('adm-p').textContent=Math.max(0,p-1);
-      showToast(action==='approve'?'✅ Подтверждено':'❌ Отклонено');
-      _apiCache=null;
-      setTimeout(()=>renderAdminDash(), 1000);
-    } else if(res.status===403){
-      if(card){card.style.opacity='1';card.style.pointerEvents='';}
-      // Фолбэк: отправить через Telegram (закроет WebApp)
-      if(tg && typeof tg.sendData==='function'){
-        if(confirm((action==='approve'?'Подтвердить':'Отклонить')+' заявку #'+bid+'?\nWebApp закроется, бот обработает действие.')){
-          tg.sendData(JSON.stringify({action, bid}));
-        } else { if(card){card.style.opacity='1';card.style.pointerEvents='';} }
-      } else { showToast('Нет прав для этого действия', 3000); if(card){card.style.opacity='1';card.style.pointerEvents='';} }
-    } else {
-      if(card){card.style.opacity='1';card.style.pointerEvents='';}
-      showToast('Ошибка: '+(res.data.error||res.status), 3000);
-    }
-  }catch(e){
-    if(card){card.style.opacity='1';card.style.pointerEvents='';}
-    // Фолбэк через sendData
-    if(tg && typeof tg.sendData==='function'){
-      if(confirm((action==='approve'?'Подтвердить':'Отклонить')+' заявку #'+bid+'?\nWebApp закроется, бот обработает действие.')){
-        tg.sendData(JSON.stringify({action, bid}));
-      }
-    } else { showToast('Ошибка: '+e.message, 3000); }
-  }
+  tg.sendData(JSON.stringify({ _action: action, booking_id: bid }));
 }
 
-// ── РЕДАКТИРОВАНИЕ ─────────────────────────────────────────────────────
+// ── EDIT MODAL ──
 function openEdit(bid,date,start,end,purpose){
-  document.getElementById('edit-bid').value=bid;
-  document.getElementById('edit-date').value=date;
-  document.getElementById('edit-start').value=start;
-  document.getElementById('edit-end').value=end;
-  document.getElementById('edit-purpose').value=purpose;
+  document.getElementById('edit-bid').value     = bid;
+  document.getElementById('edit-date').value    = date;
+  document.getElementById('edit-start').value   = start;
+  document.getElementById('edit-end').value     = end;
+  document.getElementById('edit-purpose').value = purpose;
   document.getElementById('edit-modal').classList.add('on');
 }
 function closeModal(){ document.getElementById('edit-modal').classList.remove('on'); }
 
 async function saveEdit(){
-  const bid    = parseInt(document.getElementById('edit-bid').value);
-  const fields = {
+  const bid = parseInt(document.getElementById('edit-bid').value);
+  const data = {
+    _action:    'edit',
+    booking_id: bid,
     date:       document.getElementById('edit-date').value,
     start_time: document.getElementById('edit-start').value,
     end_time:   document.getElementById('edit-end').value,
     purpose:    document.getElementById('edit-purpose').value,
   };
+  if(!tg || typeof tg.sendData !== 'function'){
+    showToast('Редактирование доступно только через Telegram');
+    closeModal(); return;
+  }
   closeModal(); haptic('success');
-  const card=document.getElementById('pc-'+bid);
-  if(card){ card.style.opacity='.5'; card.style.pointerEvents='none'; }
-  try{
-    const res = await apiPatch('/api/bookings/'+bid, fields);
-    _apiCache=null;
-    setTimeout(()=>renderAdminDash(), 800);
-    showToast(res.ok?'✏️ Сохранено':'Ошибка сохранения', 2500);
-  }catch(e){ showToast('Ошибка: '+e.message, 3000); }
+  showToast('Изменения отправлены...');
+  tg.sendData(JSON.stringify(data));
 }
 
-// ── НАВИГАЦИЯ ──────────────────────────────────────────────────────────
+// ── NAVIGATION ──
 function btnOk(ok){ document.getElementById('btn-main').disabled=!ok; }
 
 function btnClick(){
@@ -1373,50 +1275,128 @@ function goView(v){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
   const vm={splash:'sc-splash',login:'sc-login',home:'sc-home',date:'sc-date',time:'sc-time',purpose:'sc-purpose',ok:'sc-ok'};
   document.getElementById(vm[v]).classList.add('on');
-  const topbar=document.getElementById('topbar'), pbar=document.getElementById('pbar'),
-        botbar=document.getElementById('botbar'), tabsbar=document.getElementById('tabs-bar'),
-        back=document.getElementById('tb-back');
+
+  const topbar  = document.getElementById('topbar');
+  const pbar    = document.getElementById('pbar');
+  const botbar  = document.getElementById('botbar');
+  const tabsbar = document.getElementById('tabs-bar');
+  const back    = document.getElementById('tb-back');
+
   if(v==='splash'||v==='login'){
     topbar.style.display='none'; pbar.style.display='none';
-    botbar.style.display='none'; tabsbar.style.display='none'; return;
+    botbar.style.display='none'; tabsbar.style.display='none';
+    return;
   }
+
   topbar.style.display='flex'; pbar.style.display='block';
   document.getElementById('pfill').style.width=(PROGRESS_MAP[v]||0)+'%';
   back.classList.toggle('on', v!=='home'&&v!=='ok');
+
   const titles={home:S.role==='admin'?'Администратор':'Добро пожаловать',date:'Выбор даты',time:'Выбор времени',purpose:'Детали заявки',ok:'Готово!'};
   const subs  ={home:'Hayot Bank',date:S.roomName||'',time:S.dateStr||'',purpose:'Проверьте данные',ok:''};
   document.getElementById('tb-t').textContent=titles[v]||'';
   document.getElementById('tb-s').textContent=subs[v]||'';
+
   if(v==='home'){
     tabsbar.style.display='block';
-    if(S.tab==='book'){botbar.style.display='block'; btnOk(!!S.roomId);}
+    if(S.tab==='book'){ botbar.style.display='block'; btnOk(!!S.roomId); }
     else botbar.style.display='none';
   } else {
     tabsbar.style.display='none';
-    botbar.style.display = v==='ok' ? 'none' : 'block';
+    if(v==='ok') botbar.style.display='none';
+    else botbar.style.display='block';
   }
+
   const btxt={home:'Выбрать дату →',date:'Выбрать время →',time:'К деталям →',purpose:'✅ Отправить заявку'};
   document.getElementById('btn-main').textContent=btxt[v]||'Далее →';
+
   if(v==='date'){ renderCal(); if(S.date) renderSchedPanel(); btnOk(!!S.date); }
   if(v==='time'){ renderSlots(); if(S.si===null) btnOk(false); }
   if(v==='purpose') chkPurpose();
+
   document.querySelector('.page').scrollTop=0;
 }
 
-// ── УТИЛИТЫ ────────────────────────────────────────────────────────────
-function haptic(t){ try{ if(tg?.HapticFeedback){ if(t==='light') tg.HapticFeedback.impactOccurred('light'); else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning'); } }catch(e){} }
+// ── SUBMIT ──
+async function submit(){
+  const purpose = document.getElementById('purpose-in').value.trim();
+  if(!purpose){ alert('Укажите цель встречи'); return; }
 
-function showToast(msg, dur=2500){
-  let t=document.getElementById('_toast');
-  if(!t){ t=document.createElement('div'); t.id='_toast';
-    t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a3a4a;border:1px solid rgba(232,89,58,.4);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap';
-    document.body.appendChild(t); }
-  t.textContent=msg; t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
-  clearTimeout(t._timer);
-  t._timer=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';}, dur);
+  const user = tg?.initDataUnsafe?.user || {};
+  const booking = {
+    room_id:      S.roomId,
+    room_name:    S.roomName,
+    date:         S.date,
+    start_time:   SLOTS[S.si],
+    end_time:     SLOTS[S.ei],
+    purpose:      purpose,
+    participants: String(S_participants),
+    phone:        (document.getElementById('phone-in').value||'').trim(),
+    user_id:      user.id || 0,
+    username:     user.username || '',
+    full_name:    [user.first_name,user.last_name].filter(Boolean).join(' ')||user.username||'Сотрудник',
+    status:       'pending',
+  };
+
+  document.getElementById('ok-card').innerHTML=`
+    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
+    <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
+    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
+
+  goView('ok'); haptic('success');
+
+  if(tg && typeof tg.sendData === 'function'){
+    // Сохраняем в localStorage — заявка появится в "Мои заявки" сразу
+    try{
+      const uid = String(user.id||'0');
+      const key = 'hb_my_tmp_'+uid;
+      const arr = JSON.parse(localStorage.getItem(key)||'[]');
+      arr.push({...booking, id:'tmp_'+Date.now()});
+      localStorage.setItem(key, JSON.stringify(arr.slice(-50)));
+    }catch(e){}
+
+    // Отправляем боту — бот запишет в Excel, синхронизирует GitHub, уведомит администраторов
+    tg.sendData(JSON.stringify(booking));
+    showToast('Заявка отправлена ✅');
+
+    // Подтягиваем обновлённые данные с GitHub после синхронизации бота
+    setTimeout(()=>refreshBooked(true), 3000);
+    setTimeout(()=>refreshBooked(true), 8000);
+  } else {
+    showToast('⚠️ Откройте приложение через Telegram бот', 4000);
+  }
 }
 
-// ── АВТО-ОБНОВЛЕНИЕ ────────────────────────────────────────────────────
+// ── GITHUB READ + CACHE (30 сек) ──
+let _ghCache=null, _ghCacheTime=0;
+
+async function fetchBookingsFromGH(forceRefresh=false){
+  const now=Date.now();
+  if(!forceRefresh&&_ghCache&&(now-_ghCacheTime)<30000) return _ghCache;
+  const resp=await fetch(GH_RAW+'?t='+now, {cache:'no-store'});
+  if(!resp.ok) throw new Error('GitHub read error '+resp.status);
+  _ghCache=await resp.json(); _ghCacheTime=now;
+  return _ghCache;
+}
+
+async function refreshBooked(force=false){
+  try{
+    const list=await fetchBookingsFromGH(force);
+    S.booked=(Array.isArray(list)?list:[])
+      .filter(b=>b&&b.status!=='rejected')
+      .map(b=>({
+        ...b,
+        user_id:    (b.user_id==null)?'':String(b.user_id),
+        chat_id:    (b.chat_id==null)?'':String(b.chat_id),
+        room_id:    b.room_id||'',
+        start_time: b.start_time||b.start||'',
+        end_time:   b.end_time||b.end||'',
+      }));
+  }catch(e){ S.booked=S.booked||[]; }
+}
+
+// ── AUTO REFRESH ──
 let _adminTimer=null;
 function startAdminRefresh(){
   if(_adminTimer) clearInterval(_adminTimer);
@@ -1426,31 +1406,45 @@ function startAdminRefresh(){
 let _userTimer=null;
 function startUserRefresh(){
   if(_userTimer) clearInterval(_userTimer);
-  _userTimer=setInterval(async ()=>{
+  _userTimer=setInterval(async()=>{
     try{
       await refreshBooked(true);
       if(S.view==='date'){ renderCal(); if(S.date) renderSchedPanel(); }
       if(S.view==='time') renderSlots();
-      try{ if(S.tab==='my'&&S.view==='home') renderMyBookings(); }catch(e){}
+      try{ if(S.tab==='my') renderMyBookings(); }catch(e){}
       if(S.role==='admin'&&S.tab==='admin'){ try{ renderAdminDash(); }catch(e){} }
     }catch(e){}
   }, 15000);
 }
 
-// ── ИНИЦИАЛИЗАЦИЯ ──────────────────────────────────────────────────────
-// Если открываем из Telegram и есть user — автоматически входим как нужная роль
-if(tg && _tgUser.id){
-  // Пропускаем splash, сразу в home
-  // Устанавливаем роль по Telegram ID
-  S.role = IS_ADMIN ? 'admin' : 'guest';
-  if(IS_ADMIN) document.getElementById('tab-admin').style.display='flex';
+// ── HELPERS ──
+function haptic(t){
+  try{
+    if(tg?.HapticFeedback){
+      if(t==='light') tg.HapticFeedback.impactOccurred('light');
+      else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');
+    }
+  }catch(e){}
 }
 
+function showToast(msg, dur=2500){
+  let t=document.getElementById('_toast');
+  if(!t){
+    t=document.createElement('div'); t.id='_toast';
+    t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a3a4a;border:1px solid rgba(232,89,58,.4);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap';
+    document.body.appendChild(t);
+  }
+  t.textContent=msg;
+  t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+  clearTimeout(t._timer);
+  t._timer=setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; }, dur);
+}
+
+// ── INIT ──
 refreshBooked(true).then(()=>{ try{ renderCal(); }catch(e){} });
 startUserRefresh();
-if(IS_ADMIN) startAdminRefresh();
-
 goView('splash');
+
 </script>
 </body>
 </html>
