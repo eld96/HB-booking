@@ -187,35 +187,37 @@
     "chat_id": "None"
   },
   {
+    "id": 12,
     "room_id": "GO_3",
     "room_name": "Переговорная ГО (3 этаж)",
     "date": "2026-03-04",
     "start_time": "09:00",
     "end_time": "10:00",
+    "full_name": "Сотрудник",
+    "username": "None",
     "purpose": "Го го",
     "participants": "4",
-    "phone": "",
-    "user_id": 0,
-    "username": "",
-    "full_name": "Сотрудник",
+    "phone": "None",
     "status": "pending",
     "created_at": "2026-03-03 11:52:11",
-    "id": 12
+    "user_id": "0",
+    "chat_id": "None"
   },
   {
+    "id": 13,
     "room_id": "GO_3",
     "room_name": "Переговорная ГО (3 этаж)",
     "date": "2026-03-04",
     "start_time": "09:00",
     "end_time": "10:00",
+    "full_name": "Сотрудник",
+    "username": "None",
     "purpose": "Gooo",
     "participants": "5",
-    "phone": "",
-    "user_id": 0,
-    "username": "",
-    "full_name": "Сотрудник",
+    "phone": "None",
     "status": "pending",
     "created_at": "2026-03-03 11:53:11",
-    "id": 13
+    "user_id": "0",
+    "chat_id": "None"
   }
 ]
