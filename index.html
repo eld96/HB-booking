@@ -700,211 +700,221 @@ textarea::placeholder{color:var(--muted)}
 </div>
 
 <script>
-const tg=window.Telegram?.WebApp;
-if(tg){tg.expand();try{tg.setHeaderColor('#0e3a4a')}catch(e){}}
+// ==================== HAYOT BANK BOOKING WEBAPP v14 ====================
+// Архитектура: все данные через Bot API (/api/bookings)
+// Секреты (токены) хранятся ТОЛЬКО на сервере бота
+// =======================================================================
 
-// ── TIME SLOTS: 09:00 to 18:00 in 30-min steps ──
-// IMPORTANT: SLOTS[i] = start of slot i, booking from SLOTS[si] to SLOTS[ei]
-// si = start index, ei = end index (ei > si, end time = SLOTS[ei])
-const SLOTS=[];
-for(let h=9;h<=18;h++){
-  SLOTS.push(p2(h)+':00');
-  if(h<18) SLOTS.push(p2(h)+':30');
-}
-// SLOTS = [09:00,09:30,10:00,...,17:30,18:00]  length = 19
+const tg = window.Telegram?.WebApp;
+if(tg){ tg.expand(); try{ tg.setHeaderColor('#0e3a4a') }catch(e){} }
 
-function p2(n){return String(n).padStart(2,'0')}
+// ── КОНФИГУРАЦИЯ ────────────────────────────────────────────────────────
+// Замените на реальный URL вашего сервера с ботом (нужен HTTPS для prod)
+// Для разработки: https://xxxx.ngrok.io  или  http://localhost:8080
+const API_URL    = 'http://YOUR_SERVER_IP:8080';   // ← ИЗМЕНИТЬ
+const GH_RAW     = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
+const ADMIN_IDS  = [5708770608, 6488311852];  // только для отображения, бот проверяет сам
 
-// fill edit modal selects
-const es=document.getElementById('edit-start'),ee=document.getElementById('edit-end');
-SLOTS.forEach(s=>{
-  es.innerHTML+=`<option value="${s}">${s}</option>`;
-  ee.innerHTML+=`<option value="${s}">${s}</option>`;
-});
+// Определяем администратора по Telegram user id (не нужен пароль)
+const _tgUser    = tg?.initDataUnsafe?.user || {};
+const IS_ADMIN   = ADMIN_IDS.includes(_tgUser.id);
 
-const MONTHS=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
-const MONTHS_S=['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+// ── СЛОТЫ ВРЕМЕНИ ──────────────────────────────────────────────────────
+const SLOTS = [];
+for(let h=9; h<=18; h++){ SLOTS.push(p2(h)+':00'); if(h<18) SLOTS.push(p2(h)+':30'); }
+function p2(n){ return String(n).padStart(2,'0') }
 
-const S={
-  view:'splash',tab:'book',role:'guest',
-  roomId:null,roomName:null,
-  date:null,dateStr:null,
-  calY:new Date().getFullYear(),calM:new Date().getMonth(),
-  si:null,    // start slot index → start time = SLOTS[si]
-  ei:null,    // end slot index   → end time   = SLOTS[ei]   (ei > si)
-  selEnd:false,
-  booked:[],myBookings:[],
-  adminData:{pending:0,today:0,total:0,pendingItems:[],todayItems:[]},
+// Заполняем select-ы в модальном окне редактирования
+const es=document.getElementById('edit-start'), ee=document.getElementById('edit-end');
+SLOTS.forEach(s=>{ es.innerHTML+=`<option value="${s}">${s}</option>`; ee.innerHTML+=`<option value="${s}">${s}</option>`; });
+
+const MONTHS   = ['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+const MONTHS_S = ['янв','фев','мар','апр','май','июн','июл','авг','сен','окт','ноя','дек'];
+
+// ── СОСТОЯНИЕ ───────────────────────────────────────────────────────────
+const S = {
+  view:'splash', tab:'book', role:'guest',
+  roomId:null, roomName:null,
+  date:null, dateStr:null,
+  calY: new Date().getFullYear(), calM: new Date().getMonth(),
+  si:null, ei:null, selEnd:false,
+  booked:[], myBookings:[],
+  adminData:{pending:0, today:0, total:0, pendingItems:[], todayItems:[]},
 };
 
-// ── GITHUB — источник данных ──
-const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
-const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
-const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
-const ADMIN_IDS = [5708770608, 6488311852];
-const ADMIN_LOGIN = 'hayot';
-const ADMIN_PASS  = 'bank2024';
+// ── HTTP API КЛИЕНТ ─────────────────────────────────────────────────────
+let _apiCache       = null;
+let _apiCacheTime   = 0;
+const CACHE_TTL_MS  = 20000;  // 20 сек кэш для чтения
 
-// Токен разбит на части — вставь свой новый токен разбив его на 3 части:
-// Например токен ghp_ABC123DEF456GHI789 → ['ghp_ABC1','23DEF4','56GHI789']
-const _tk = ['ghp_8iNp7', 'SsM6lbRjxFITbaXR', 'fdA4yarav37mYQA'];
-const GH_TOKEN = _tk.join('');
-
-// fetchBookingsFromGH и ghRead определены ниже (с кэшированием)
-
-// Загружаем актуальные данные при старте
-async function loadBookingsFromGH(){
-  try {
-    const all = await fetchBookingsFromGH();
-    // Для календаря (занятые слоты)
-    S.booked = all
-      .filter(b => b.status !== 'rejected')
-      .map(b => ({
-        room_id: b.room_id, date: b.date,
-        start: b.start_time, end: b.end_time,
-        name: b.full_name || b.username || '—',
-        status: b.status
-      }));
-    // Мои заявки
-    const myId = String(tg?.initDataUnsafe?.user?.id || '');
-    if(myId){
-      S.myBookings = all
-        .filter(b => String(b.user_id) === myId)
-        .map(b=>({...b, room_name: b.room_name||b.room_id}));
-    }
-  } catch(e){ console.log('GH load error', e); }
-}
-loadBookingsFromGH();
-
-// ── ROLE ──
-function enterGuest(){S.role='guest';document.getElementById('tab-admin').style.display='none';initHome()}
-
-function tryLogin(){
+async function apiFetch(force=false){
+  const now = Date.now();
+  if(!force && _apiCache && (now - _apiCacheTime) < CACHE_TTL_MS) return _apiCache;
   try{
-    const u = (document.getElementById('l-u').value||'').trim();
-    const p = document.getElementById('l-p').value||'';
-    const errEl = document.getElementById('lerr');
-    errEl.style.display = 'none';
-
-    if(u === 'hayot' && p === 'bank2024'){
-      S.role = 'admin';
-      document.getElementById('tab-admin').style.display = 'flex';
-      initHome();
-      switchTab('admin');
-      startAdminRefresh();
-      haptic('success');
-    } else {
-      errEl.style.display = 'block';
-      errEl.classList.add('on');
-      haptic('error');
-      setTimeout(()=>errEl.classList.remove('on'), 400);
+    const r = await fetch(API_URL + '/api/bookings');
+    if(!r.ok) throw new Error('API ' + r.status);
+    _apiCache = await r.json(); _apiCacheTime = now;
+    return _apiCache;
+  }catch(e){
+    // Фолбэк: пробуем GitHub Raw
+    try{
+      const r2 = await fetch(GH_RAW + '?t=' + now, {cache:'no-store'});
+      if(!r2.ok) throw new Error('GH ' + r2.status);
+      _apiCache = await r2.json(); _apiCacheTime = now;
+      return _apiCache;
+    }catch(e2){
+      return _apiCache || [];
     }
-  } catch(e){
-    console.error('tryLogin error:', e);
   }
 }
+
+async function apiPost(path, body){
+  const r = await fetch(API_URL + path, {
+    method:'POST',
+    headers:{'Content-Type':'application/json', 'X-Init-Data': tg?.initData||''},
+    body: JSON.stringify(body)
+  });
+  return {ok: r.ok, status: r.status, data: await r.json().catch(()=>({}))};
+}
+
+async function apiPatch(path, body){
+  const r = await fetch(API_URL + path, {
+    method:'PATCH',
+    headers:{'Content-Type':'application/json', 'X-Init-Data': tg?.initData||''},
+    body: JSON.stringify(body)
+  });
+  return {ok: r.ok, status: r.status, data: await r.json().catch(()=>({}))};
+}
+
+// ── РОЛИ ────────────────────────────────────────────────────────────────
+function enterGuest(){
+  S.role = 'guest';
+  // Если пользователь является администратором — показываем вкладку управления
+  if(IS_ADMIN){
+    S.role = 'admin';
+    document.getElementById('tab-admin').style.display = 'flex';
+  } else {
+    document.getElementById('tab-admin').style.display = 'none';
+  }
+  initHome();
+}
+
+function tryLogin(){
+  // Теперь авторизация только для ручного входа (если открыт вне Telegram)
+  const u = (document.getElementById('l-u').value||'').trim();
+  const p = document.getElementById('l-p').value||'';
+  const errEl = document.getElementById('lerr');
+  errEl.style.display = 'none';
+  // Только для просмотра вне Telegram (API всё равно проверяет initData)
+    if(u === 'hayot' if(u === 'hayot' && p === 'bank2024'){if(u === 'hayot' && p === 'bank2024'){ p === 'bank2024'){
+    S.role = 'admin';
+    document.getElementById('tab-admin').style.display = 'flex';
+    initHome(); switchTab('admin'); startAdminRefresh(); haptic('success');
+  } else {
+    errEl.style.display = 'block'; errEl.classList.add('on'); haptic('error');
+    setTimeout(()=>errEl.classList.remove('on'), 400);
+  }
+}
+
 function initHome(){
   document.getElementById('tabs-bar').style.display='block';
   goView('home');
   switchTab(S.role==='admin'?'admin':'book');
 }
+
 function goSplash(){
-  S.roomId=null;S.roomName=null;S.date=null;S.dateStr=null;
-  S.si=null;S.ei=null;S.selEnd=false;
+  S.roomId=null; S.roomName=null; S.date=null; S.dateStr=null;
+  S.si=null; S.ei=null; S.selEnd=false;
   document.querySelectorAll('.rm-chk').forEach(e=>e.textContent='');
   document.querySelectorAll('.room-card').forEach(e=>e.classList.remove('on'));
   document.getElementById('tabs-bar').style.display='none';
-  // Сброс полей формы
-  try{document.getElementById('purpose-in').value='';}catch(e){}
-  try{document.getElementById('phone-in').value='';}catch(e){}
+  try{ document.getElementById('purpose-in').value=''; }catch(e){}
+  try{ document.getElementById('phone-in').value=''; }catch(e){}
   try{
     document.querySelectorAll('.part-btn').forEach(b=>b.classList.remove('on'));
     document.querySelector('.part-btn[data-val="1"]').classList.add('on');
-    S_participants=1;
+    S_participants = 1;
   }catch(e){}
   goView('splash');
 }
 
-// ── TABS ──
+// ── ВКЛАДКИ ──────────────────────────────────────────────────────────────
 function switchTab(t){
-  S.tab=t;
+  S.tab = t;
   ['book','my','admin'].forEach(id=>{
     document.getElementById('tab-'+id)?.classList.remove('on');
-    document.getElementById('pane-'+id).style.display='none';
+    document.getElementById('pane-'+id).style.display = 'none';
   });
   document.getElementById('tab-'+t).classList.add('on');
-  document.getElementById('pane-'+t).style.display='block';
-  if(t==='book'){document.getElementById('botbar').style.display='block';btnOk(!!S.roomId);document.getElementById('btn-main').textContent='Выбрать дату →'}
+  document.getElementById('pane-'+t).style.display = 'block';
+  if(t==='book'){ document.getElementById('botbar').style.display='block'; btnOk(!!S.roomId); document.getElementById('btn-main').textContent='Выбрать дату →'; }
   else document.getElementById('botbar').style.display='none';
-  if(t==='my') renderMyBookings();
+  if(t==='my')    renderMyBookings();
   if(t==='admin') renderAdminDash();
 }
 
-// ── ROOM ──
+// ── КАБИНЕТЫ ─────────────────────────────────────────────────────────────
 function pickRoom(id,name){
-  S.roomId=id;S.roomName=name;
+  S.roomId=id; S.roomName=name;
   document.querySelectorAll('.room-card').forEach(c=>c.classList.remove('on'));
   document.getElementById('ck-GO_3').textContent='';
   document.getElementById('ck-MINOR').textContent='';
   document.getElementById('rc-'+id).classList.add('on');
   document.getElementById('ck-'+id).textContent='✅';
-  btnOk(true);haptic('light');
+  btnOk(true); haptic('light');
 }
 
-// ── CALENDAR ──
+// ── КАЛЕНДАРЬ ────────────────────────────────────────────────────────────
 function renderCal(){
-  const y=S.calY,m=S.calM;
-  document.getElementById('cal-title').textContent=MONTHS[m]+' '+y;
-  const today=new Date();today.setHours(0,0,0,0);
+  const y=S.calY, m=S.calM;
+  document.getElementById('cal-title').textContent = MONTHS[m]+' '+y;
+  const today=new Date(); today.setHours(0,0,0,0);
   const fdow=(new Date(y,m,1).getDay()+6)%7;
   const dim=new Date(y,m+1,0).getDate();
-  const g=document.getElementById('cal-grid');g.innerHTML='';
-  for(let i=0;i<fdow;i++){const e=document.createElement('div');e.className='cd empty';g.appendChild(e)}
+  const g=document.getElementById('cal-grid'); g.innerHTML='';
+  for(let i=0;i<fdow;i++){ const e=document.createElement('div'); e.className='cd empty'; g.appendChild(e); }
   for(let d=1;d<=dim;d++){
     const dt=new Date(y,m,d);
-    const el=document.createElement('div');el.className='cd';el.textContent=d;
+    const el=document.createElement('div'); el.className='cd'; el.textContent=d;
     const dow=dt.getDay();
     const ds=y+'-'+p2(m+1)+'-'+p2(d);
-    if(dt<today)el.classList.add('past');
-    else if(dow===0||dow===6)el.classList.add('wknd');
+    if(dt<today) el.classList.add('past');
+    else if(dow===0||dow===6) el.classList.add('wknd');
     else{
       el.classList.add('avail');
-      if(dt.toDateString()===today.toDateString())el.classList.add('today');
-      if(S.booked.some(b=>b.date===ds))el.classList.add('has-dot');
+      if(dt.toDateString()===today.toDateString()) el.classList.add('today');
+      if(S.booked.some(b=>b.date===ds)) el.classList.add('has-dot');
       el.onclick=()=>pickDate(ds,d,m,y,el);
     }
-    if(ds===S.date)el.classList.add('picked');
+    if(ds===S.date) el.classList.add('picked');
     g.appendChild(el);
   }
 }
+
 function prevM(){
-  const t=new Date();S.calM--;
+  const t=new Date(); S.calM--;
   if(S.calM<0){S.calM=11;S.calY--}
   if(S.calY<t.getFullYear()||(S.calY===t.getFullYear()&&S.calM<t.getMonth())){S.calM++;if(S.calM>11){S.calM=0;S.calY++}}
   renderCal();
 }
-function nextM(){S.calM++;if(S.calM>11){S.calM=0;S.calY++}renderCal()}
+function nextM(){ S.calM++; if(S.calM>11){S.calM=0;S.calY++} renderCal(); }
 
 function pickDate(ds,d,m,y,el){
-  S.date=ds;S.dateStr=d+' '+MONTHS_S[m]+' '+y;
+  S.date=ds; S.dateStr=d+' '+MONTHS_S[m]+' '+y;
   document.querySelectorAll('.cd.picked').forEach(e=>e.classList.remove('picked'));
   el.classList.add('picked');
   document.getElementById('sched-dt').textContent=S.dateStr;
-  renderSchedPanel();
-  btnOk(true);
+  renderSchedPanel(); btnOk(true);
   document.getElementById('btn-main').textContent='Выбрать время →';
   haptic('light');
 }
 
 function renderSchedPanel(){
-  const body=document.getElementById('sched-body');body.innerHTML='';
+  const body=document.getElementById('sched-body'); body.innerHTML='';
   const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
-  if(!bkd.length){
-    body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>';
-    appendQuickSlots(body,bkd);return;
-  }
+  if(!bkd.length){ body.innerHTML='<div class="free-banner">🟢 Весь день свободен!</div>'; appendQuickSlots(body,bkd); return; }
   bkd.forEach(b=>{
-    const el=document.createElement('div');el.className='sitem';
+    const el=document.createElement('div'); el.className='sitem';
     el.innerHTML=`<div class="si-time">${b.start_time}–${b.end_time}</div><div class="si-who">👤 ${b.name||'—'}</div><div class="si-purpose">${b.purpose||''}</div>`;
     body.appendChild(el);
   });
@@ -912,92 +922,64 @@ function renderSchedPanel(){
 }
 
 function appendQuickSlots(body,bkd){
-  const qs=findFreeSlots(bkd);
-  if(!qs.length)return;
-  const lbl=document.createElement('div');lbl.className='qlabel';lbl.textContent='Свободные окна';body.appendChild(lbl);
-  const wrap=document.createElement('div');wrap.className='quick-slots';
-  qs.forEach(q=>{
-    const b=document.createElement('div');b.className='qs';b.textContent=q.label;
-    b.onclick=()=>{S.si=q.si;S.ei=q.ei;goView('time')};
-    wrap.appendChild(b);
-  });
+  const qs=findFreeSlots(bkd); if(!qs.length) return;
+  const lbl=document.createElement('div'); lbl.className='qlabel'; lbl.textContent='Свободные окна'; body.appendChild(lbl);
+  const wrap=document.createElement('div'); wrap.className='quick-slots';
+  qs.forEach(q=>{ const b=document.createElement('div'); b.className='qs'; b.textContent=q.label;
+    b.onclick=()=>{S.si=q.si;S.ei=q.ei;goView('time')}; wrap.appendChild(b); });
   body.appendChild(wrap);
 }
 
 function findFreeSlots(bkd){
-  // find first 3 free 60-min blocks (2 slots)
   const r=[];
   for(let i=0;i<SLOTS.length-2;i++){
-    const s=SLOTS[i],e=SLOTS[i+2];
+    const s=SLOTS[i], e=SLOTS[i+2];
     if(!bkd.some(b=>!(e<=b.start_time||s>=b.end_time))){
-      r.push({label:s+'–'+e,si:i,ei:i+2});
-      if(r.length>=3)break;
+      r.push({label:s+'–'+e,si:i,ei:i+2}); if(r.length>=3) break;
     }
   }
   return r;
 }
 
-// ── TIME SLOTS ──
-// KEY FIX:
-// S.si = index in SLOTS array for START time  → start = SLOTS[S.si]
-// S.ei = index in SLOTS array for END time    → end   = SLOTS[S.ei]
-// Clicking slot button i as START → S.si = i
-// Clicking slot button i as END   → S.ei = i+1  (slot i ends at SLOTS[i+1])
-//   BUT user sees label SLOTS[i] and expects end = SLOTS[i] → so END click on button i → S.ei = i
-// Highlight: buttons from S.si to S.ei-1 are highlighted (those are the 30-min blocks)
-
+// ── СЛОТЫ ВРЕМЕНИ ────────────────────────────────────────────────────────
 function renderSlots(){
   const bkd=S.booked.filter(b=>b.date===S.date && String(b.room_id||'')===String(S.roomId||''));
-
-  // timeline booked segs
   const tl=document.getElementById('tl');
   tl.querySelectorAll('.tl-bk').forEach(e=>e.remove());
-  // total slots = SLOTS.length - 1 time intervals (but SLOTS.length = 19 for 09:00-18:00)
-  // timeline spans 09:00 to 18:00 = 9 hours = 18 intervals of 30min
-  const totalMins=9*60; // 09:00 to 18:00
+  const totalMins=9*60;
   bkd.forEach(b=>{
-    const sMin=timeToMins(b.start_time)-540; // offset from 09:00
-    const eMin=timeToMins(b.end_time)-540;
+    const sMin=timeToMins(b.start_time)-540, eMin=timeToMins(b.end_time)-540;
     if(sMin>=0&&eMin>sMin){
-      const seg=document.createElement('div');seg.className='tl-bk';
-      seg.style.left=(sMin/totalMins*100)+'%';
-      seg.style.width=((eMin-sMin)/totalMins*100)+'%';
+      const seg=document.createElement('div'); seg.className='tl-bk';
+      seg.style.left=(sMin/totalMins*100)+'%'; seg.style.width=((eMin-sMin)/totalMins*100)+'%';
       tl.appendChild(seg);
     }
   });
-
-  // slot buttons: one button per 30-min interval
-  // button i covers SLOTS[i] to SLOTS[i+1]
-  // button label shows start of interval
-  const g=document.getElementById('slot-grid');g.innerHTML='';
-  // Текущее время Ташкент UTC+5
+  const g=document.getElementById('slot-grid'); g.innerHTML='';
   const _nowTZ=new Date(Date.now()+5*3600000);
   const _todayStr=_nowTZ.toISOString().slice(0,10);
   const _nowMin=_nowTZ.getUTCHours()*60+_nowTZ.getUTCMinutes();
   for(let i=0;i<SLOTS.length-1;i++){
     const slot=SLOTS[i];
-    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start_time||slot>=b.end_time)});
+    const isBk=bkd.some(b=>{const se=SLOTS[i+1];return !(se<=b.start_time||slot>=b.end_time);});
     const [sh,sm]=slot.split(':').map(Number);
     const isPast=(S.date===_todayStr)&&(sh*60+sm<=_nowMin);
-    const el=document.createElement('div');el.className='sl';
+    const el=document.createElement('div'); el.className='sl';
     const [h,m]=slot.split(':');
     el.innerHTML=`<span class="sl-h">${h}</span><span class="sl-m">${m}</span>`;
     el.dataset.i=i;
-    if(isBk||isPast){el.classList.add('bk')}
-    else{el.onclick=()=>clickSlot(i,bkd)}
+    if(isBk||isPast){ el.classList.add('bk'); } else { el.onclick=()=>clickSlot(i,bkd); }
     g.appendChild(el);
   }
-
-  // restore pre-selected (quick slot)
   if(S.si!==null&&S.ei!==null){
-    setTV('s',SLOTS[S.si]);setTV('e',SLOTS[S.ei]);
-    setLit('s',false);setLit('e',true,'done');
+    setTV('s',SLOTS[S.si]); setTV('e',SLOTS[S.ei]);
+    setLit('s',false); setLit('e',true,'done');
     document.getElementById('sl-mode').innerHTML='✓ Выбрано. Нажмите <b>Далее</b> или измените';
-    hlSlots();drawSelSeg();chkCfl(bkd);
+    hlSlots(); drawSelSeg(); chkCfl(bkd);
   } else {
-    S.si=null;S.ei=null;S.selEnd=false;
-    setTV('s','--:--');setTV('e','--:--');
-    setLit('s',false);setLit('e',false);
+    S.si=null; S.ei=null; S.selEnd=false;
+    setTV('s','--:--'); setTV('e','--:--');
+    setLit('s',false); setLit('e',false);
     document.getElementById('tl-sel').style.display='none';
     document.getElementById('dur').classList.remove('on');
     document.getElementById('cfl').classList.remove('on');
@@ -1009,42 +991,32 @@ function renderSlots(){
 function clickSlot(i,bkd){
   haptic('light');
   if(!S.selEnd){
-    // ── SELECT START ──
-    // Clicking button i → start time = SLOTS[i]
-    S.si=i;S.ei=null;S.selEnd=true;
-    setTV('s',SLOTS[i]);setTV('e','--:--');
-    setLit('s',true);setLit('e',false);
+    S.si=i; S.ei=null; S.selEnd=true;
+    setTV('s',SLOTS[i]); setTV('e','--:--');
+    setLit('s',true); setLit('e',false);
     document.getElementById('sl-mode').innerHTML='Теперь выберите <b>конец</b>';
     document.getElementById('tl-sel').style.display='none';
     document.getElementById('dur').classList.remove('on');
     document.getElementById('cfl').classList.remove('on');
-    btnOk(false);
-    hlSlots();
+    btnOk(false); hlSlots();
   } else {
-    // ── SELECT END ──
-    // Clicking button i → end time = SLOTS[i+1] (end of this 30-min block)
-    // So S.ei = i+1
     const newEi=i+1;
     if(newEi<=S.si){
-      // clicked before or at start → reset start
-      S.si=i;S.selEnd=true;
-      setTV('s',SLOTS[i]);setTV('e','--:--');
-      setLit('s',true);setLit('e',false);
+      S.si=i; S.selEnd=true; setTV('s',SLOTS[i]); setTV('e','--:--');
+      setLit('s',true); setLit('e',false);
       document.getElementById('tl-sel').style.display='none';
       document.getElementById('dur').classList.remove('on');
       document.getElementById('cfl').classList.remove('on');
-      hlSlots();return;
+      hlSlots(); return;
     }
-    S.ei=newEi;S.selEnd=false;
-    setTV('e',SLOTS[S.ei]);
-    setLit('s',false);setLit('e',true,'done');
+    S.ei=newEi; S.selEnd=false; setTV('e',SLOTS[S.ei]);
+    setLit('s',false); setLit('e',true,'done');
     document.getElementById('sl-mode').innerHTML='✓ Выбрано. Нажмите <b>Далее</b> или выберите заново';
-    hlSlots();drawSelSeg();chkCfl(bkd);
+    hlSlots(); drawSelSeg(); chkCfl(bkd);
   }
 }
 
 function hlSlots(){
-  // Highlight buttons si to ei-1 (those are the selected 30-min blocks)
   document.querySelectorAll('.sl').forEach((el,i)=>{
     el.classList.remove('ss','se','ir');
     if(i===S.si) el.classList.add('ss');
@@ -1054,88 +1026,89 @@ function hlSlots(){
 }
 
 function drawSelSeg(){
-  if(S.si===null||S.ei===null)return;
+  if(S.si===null||S.ei===null) return;
   const totalMins=9*60;
-  const sMin=timeToMins(SLOTS[S.si])-540;
-  const eMin=timeToMins(SLOTS[S.ei])-540;
+  const sMin=timeToMins(SLOTS[S.si])-540, eMin=timeToMins(SLOTS[S.ei])-540;
   const sel=document.getElementById('tl-sel');
-  sel.style.display='block';
-  sel.style.left=(sMin/totalMins*100)+'%';
-  sel.style.width=((eMin-sMin)/totalMins*100)+'%';
+  sel.style.display='block'; sel.style.left=(sMin/totalMins*100)+'%'; sel.style.width=((eMin-sMin)/totalMins*100)+'%';
 }
 
 function chkCfl(bkd){
-  if(S.si===null||S.ei===null)return;
-  const start=SLOTS[S.si],end=SLOTS[S.ei];
+  if(S.si===null||S.ei===null) return;
+  const start=SLOTS[S.si], end=SLOTS[S.ei];
   const cx=bkd.find(b=>!(end<=b.start_time||start>=b.end_time));
   const mins=(S.ei-S.si)*30;
   const dur=mins>=60?Math.floor(mins/60)+'ч'+(mins%60?' '+mins%60+'мин':''):mins+' мин';
   if(cx){
     document.getElementById('cfl').classList.add('on');
-    document.getElementById('cfl-t').textContent=`Время ${cx.start}–${cx.end} уже забронировано. Выберите другой промежуток.`;
+    document.getElementById('cfl-t').textContent=`Время уже забронировано. Выберите другой промежуток.`;
     document.getElementById('dur').classList.remove('on');
-    btnOk(false);haptic('error');
+    btnOk(false); haptic('error');
   } else {
     document.getElementById('cfl').classList.remove('on');
     document.getElementById('dur').textContent=`⏱ Длительность: ${dur.trim()}`;
     document.getElementById('dur').classList.add('on');
-    btnOk(true);haptic('success');
+    btnOk(true); haptic('success');
   }
 }
 
-function timeToMins(t){const[h,m]=t.split(':').map(Number);return h*60+m}
-function setTV(w,v){document.getElementById('tv'+w).textContent=v}
-function setLit(w,on,cls){
-  const el=document.getElementById('tb'+w);
-  el.classList.remove('lit','done');
-  if(on)el.classList.add(cls||'lit');
-}
+function timeToMins(t){ const[h,m]=t.split(':').map(Number); return h*60+m; }
+function setTV(w,v){ document.getElementById('tv'+w).textContent=v; }
+function setLit(w,on,cls){ const el=document.getElementById('tb'+w); el.classList.remove('lit','done'); if(on) el.classList.add(cls||'lit'); }
 
-// ── PURPOSE ──
+// ── УЧАСТНИКИ ────────────────────────────────────────────────────────────
 let S_participants = 1;
 function setPart(btn){
   document.querySelectorAll('.part-btn').forEach(b=>b.classList.remove('on'));
-  btn.classList.add('on');
-  S_participants = btn.dataset.val;
-  haptic('light');
+  btn.classList.add('on'); S_participants=btn.dataset.val; haptic('light');
 }
-function chkPurpose(){btnOk(document.getElementById('purpose-in').value.trim().length>=3)}
+function chkPurpose(){ btnOk(document.getElementById('purpose-in').value.trim().length>=3); }
 
-// ── MY BOOKINGS ──
+// ── МОИ ЗАЯВКИ ───────────────────────────────────────────────────────────
 async function renderMyBookings(){
   const list=document.getElementById('my-list');
   list.innerHTML='<div class="empty-st"><div class="ei">⏳</div>Загрузка...</div>';
 
-  const user = tg?.initDataUnsafe?.user || {};
-  const uid = user.id || 0;
-  const uname = user.username || '';
+  const uid   = String(_tgUser.id || '');
+  const uname = _tgUser.username || '';
+
+  // Добавляем временные заявки из localStorage пока не пришли с сервера
+  const tmpKey = 'hb_pending_' + (uid || '0');
+  let tmpItems = [];
+  try{ tmpItems = JSON.parse(localStorage.getItem(tmpKey)||'[]'); }catch(e){}
 
   let all = [];
-  try { all = await fetchBookingsFromGH(); } catch(e){
-    list.innerHTML='<div class="empty-st"><div class="ei">⚠️</div>Ошибка загрузки</div>'; return;
+  try{ all = await apiFetch(true); }catch(e){}
+
+  // Фильтруем свои заявки
+  const serverIds = new Set(all.map(b=>String(b.id)));
+  const mine = all.filter(b=>(uid&&b.user_id==uid)||(uname&&b.username===uname))
+                  .sort((a,b)=>b.id-a.id);
+
+  // Добавляем временные (которых ещё нет на сервере)
+  const pending_local = tmpItems.filter(t=>!serverIds.has(String(t._tmpId)));
+  const combined = [...pending_local.map(t=>({...t,status:'pending',_local:true})), ...mine];
+
+  // Очищаем localStorage от тех что уже пришли с сервера
+  if(tmpItems.length > 0){
+    const fresh = tmpItems.filter(t=>!serverIds.has(String(t._tmpId)));
+    try{ localStorage.setItem(tmpKey, JSON.stringify(fresh.slice(-20))); }catch(e){}
   }
 
-  // Фильтруем по user_id или username
-  const mine = all.filter(b =>
-    (uid && b.user_id == uid) ||
-    (uname && b.username === uname)
-  ).sort((a,b)=>b.id-a.id);
-
   S.myBookings = mine;
-  list.innerHTML='';
+  list.innerHTML = '';
 
-  if(!mine.length){
-    list.innerHTML='<div class="empty-st"><div class="ei">📭</div>У вас нет бронирований</div>';
-    return;
+  if(!combined.length){
+    list.innerHTML='<div class="empty-st"><div class="ei">📭</div>У вас нет бронирований</div>'; return;
   }
 
   const sm={approved:'✅ Подтверждено', pending:'⏳ Ожидает', rejected:'❌ Отклонено'};
-  mine.forEach(b=>{
+  combined.forEach(b=>{
     const el=document.createElement('div'); el.className='bitem';
     el.innerHTML=`
       <div class="bi-dot ${b.status}"></div>
       <div class="bi-info">
-        <div class="bi-room">${b.room_name||b.room_id}</div>
+        <div class="bi-room">${b.room_name||b.room_id||'—'}${b._local?' <span style="font-size:9px;color:var(--gold)">(отправляется...)</span>':''}</div>
         <div class="bi-time">${b.start_time}–${b.end_time}</div>
         <div class="bi-date">📅 ${b.date} · 👥 ${b.participants||1} чел.</div>
         <div class="bi-date">📝 ${b.purpose||''}</div>
@@ -1145,123 +1118,154 @@ async function renderMyBookings(){
   });
 }
 
-// ── ADMIN ──
-async function renderAdminDash(){
-  if(S.role!=='admin') return;
-  document.getElementById('adm-pending-list').innerHTML=
-    '<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
-  document.getElementById('adm-today-list').innerHTML='';
+// ── ОБНОВЛЕНИЕ ДАННЫХ ──────────────────────────────────────────────────
+async function refreshBooked(force=false){
+  try{
+    const list = await apiFetch(force);
+    S.booked = (Array.isArray(list)?list:[])
+      .filter(b=>b&&b.status!=='rejected')
+      .map(b=>({...b, room_id:b.room_id||'', user_id:String(b.user_id||''), chat_id:String(b.chat_id||''),
+                name: b.full_name||b.username||'—', start_time:b.start_time, end_time:b.end_time}));
+  }catch(e){ S.booked=S.booked||[]; }
+}
 
-  let all = [];
-  try {
-    all = await fetchBookingsFromGH();
-    S.booked = all
-      .filter(b => b.status !== 'rejected')
-      .map(b => ({room_id:b.room_id,date:b.date,start:b.start_time,end:b.end_time,
-                  name:b.full_name||b.username||'—',status:b.status}));
-  } catch(e){
-    document.getElementById('adm-pending-list').innerHTML=
-      '<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Ошибка загрузки.<br>Проверьте соединение.</div>';
-    return;
-  }
+// ── ОТПРАВКА ЗАЯВКИ ────────────────────────────────────────────────────
+async function submit(){
+  const purpose = document.getElementById('purpose-in').value.trim();
+  if(!purpose){ alert('Укажите цель встречи'); return; }
 
-  // Ташкент UTC+5
-  const nowTZ = new Date(Date.now() + 5*3600000);
-  const today = nowTZ.toISOString().slice(0,10);
-
-  const pendingItems = all
-    .filter(b => b.status === 'pending')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
-
-  const upcomingItems = all
-    .filter(b => b.date >= today && b.status !== 'rejected')
-    .sort((a,b) => (a.date+a.start_time).localeCompare(b.date+b.start_time));
-
-  const todayCount = all.filter(b => b.date === today && b.status !== 'rejected').length;
-
-  S.adminData = {
-    pending: pendingItems.length, today: todayCount,
-    total: all.length, pendingItems, todayItems: upcomingItems,
+  const booking = {
+    room_id:      S.roomId,
+    room_name:    S.roomName,
+    date:         S.date,
+    start_time:   SLOTS[S.si],
+    end_time:     SLOTS[S.ei],
+    purpose:      purpose,
+    participants: String(S_participants),
+    phone:        (document.getElementById('phone-in').value||'').trim(),
+    user_id:      _tgUser.id || 0,
+    username:     _tgUser.username || '',
+    full_name:    [_tgUser.first_name, _tgUser.last_name].filter(Boolean).join(' ') || _tgUser.username || 'Сотрудник',
+    status:       'pending',
   };
 
-  document.getElementById('adm-p').textContent = pendingItems.length;
-  document.getElementById('adm-t').textContent = todayCount;
+  // Показываем экран подтверждения сразу (оптимистичный UI)
+  document.getElementById('ok-card').innerHTML=`
+    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
+    <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
+    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
+    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
+  goView('ok'); haptic('success');
+
+  try{
+    // Сохраняем временно в localStorage для "Мои заявки"
+    const tmpKey = 'hb_pending_' + (booking.user_id || '0');
+    const tmpId  = Date.now();
+    booking._tmpId = tmpId;
+    try{
+      const arr = JSON.parse(localStorage.getItem(tmpKey)||'[]');
+      arr.push(booking); localStorage.setItem(tmpKey, JSON.stringify(arr.slice(-20)));
+    }catch(e){}
+
+    // Отправляем в API бота
+    const res = await apiPost('/api/bookings', booking);
+    if(res.ok){
+      // Успешно сохранено — инвалидируем кэш и обновляем данные
+      _apiCache = null;
+      await refreshBooked(true);
+      showToast('✅ Заявка #' + (res.data.id||'') + ' отправлена');
+    } else if(res.status === 409){
+      showToast('🚫 Конфликт времени — выберите другой слот', 4000);
+      goView('time');
+    } else {
+      // Фолбэк: если API недоступен, отправляем через Telegram sendData
+      if(tg && typeof tg.sendData === 'function'){
+        tg.sendData(JSON.stringify(booking));
+        // sendData() закрывает WebApp — бот обработает и пришлёт уведомление
+      } else {
+        showToast('Ошибка отправки. Попробуйте снова.', 4000);
+      }
+    }
+  }catch(e){
+    // Фолбэк через sendData
+    if(tg && typeof tg.sendData === 'function'){
+      tg.sendData(JSON.stringify(booking));
+    } else {
+      showToast('Ошибка: ' + e.message, 4000);
+    }
+  }
+}
+
+// ── АДМИН ДАШБОРД ──────────────────────────────────────────────────────
+async function renderAdminDash(){
+  if(S.role!=='admin') return;
+  document.getElementById('adm-pending-list').innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">⏳</div>Загрузка...</div>';
+  document.getElementById('adm-today-list').innerHTML='';
+
+  let all=[];
+  try{
+    all = await apiFetch(true);
+    S.booked = all.filter(b=>b.status!=='rejected')
+      .map(b=>({room_id:b.room_id,date:b.date,start_time:b.start_time,end_time:b.end_time,
+                name:b.full_name||b.username||'—',status:b.status}));
+  }catch(e){
+    document.getElementById('adm-pending-list').innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">⚠️</div>Ошибка загрузки.</div>'; return;
+  }
+
+  const nowTZ  = new Date(Date.now()+5*3600000);
+  const today  = nowTZ.toISOString().slice(0,10);
+  const pending = all.filter(b=>b.status==='pending').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
+  const upcoming= all.filter(b=>b.date>=today&&b.status!=='rejected').sort((a,b)=>(a.date+a.start_time).localeCompare(b.date+b.start_time));
+
+  document.getElementById('adm-p').textContent = pending.length;
+  document.getElementById('adm-t').textContent = all.filter(b=>b.date===today&&b.status!=='rejected').length;
   document.getElementById('adm-a').textContent = all.length;
 
-  // ── ДАШБОРД: занятость кабинетов за 7 дней ──
-  const days7 = [];
-  for(let i=0;i<7;i++){
-    const d = new Date(Date.now() + 5*3600000 - i*86400000);
-    days7.push(d.toISOString().slice(0,10));
-  }
-  const roomNames = {'GO_3':'Переговорная ГО', 'MINOR':'Офис Минор'};
-  const roomCounts = {};
-  Object.keys(roomNames).forEach(k => roomCounts[k] = 0);
-  all.forEach(b => {
-    if(days7.includes(b.date) && b.status !== 'rejected' && roomCounts[b.room_id] !== undefined)
-      roomCounts[b.room_id]++;
+  // Дашборд
+  const days7=[]; for(let i=0;i<7;i++){ const d=new Date(Date.now()+5*3600000-i*86400000); days7.push(d.toISOString().slice(0,10)); }
+  const roomNames={'GO_3':'Переговорная ГО','MINOR':'Офис Минор'};
+  const roomCounts={}; Object.keys(roomNames).forEach(k=>roomCounts[k]=0);
+  all.forEach(b=>{ if(days7.includes(b.date)&&b.status!=='rejected'&&roomCounts[b.room_id]!==undefined) roomCounts[b.room_id]++; });
+  const maxRoom=Math.max(1,...Object.values(roomCounts));
+  const dashRooms=document.getElementById('dash-rooms'); dashRooms.innerHTML='';
+  Object.entries(roomCounts).forEach(([rid,cnt])=>{
+    dashRooms.innerHTML+=`<div class="dash-bar-row"><div class="dash-bar-label">${roomNames[rid]||rid}</div><div class="dash-bar-track"><div class="dash-bar-fill" style="width:${Math.round(cnt/maxRoom*100)}%"></div></div><div class="dash-bar-val">${cnt}</div></div>`;
   });
-  const maxRoom = Math.max(1, ...Object.values(roomCounts));
-  const dashRooms = document.getElementById('dash-rooms');
-  dashRooms.innerHTML = '';
-  Object.entries(roomCounts).forEach(([rid, cnt]) => {
-    dashRooms.innerHTML += `
-      <div class="dash-bar-row">
-        <div class="dash-bar-label">${roomNames[rid]||rid}</div>
-        <div class="dash-bar-track"><div class="dash-bar-fill" style="width:${Math.round(cnt/maxRoom*100)}%"></div></div>
-        <div class="dash-bar-val">${cnt}</div>
-      </div>`;
+  const dayLabels=['Сег','Вчер','2д','3д','4д','5д','6д'];
+  const dayCounts=days7.map(d=>all.filter(b=>b.date===d&&b.status!=='rejected').length);
+  const maxDay=Math.max(1,...dayCounts);
+  const dashDays=document.getElementById('dash-days'); dashDays.innerHTML='';
+  days7.forEach((d,i)=>{
+    dashDays.innerHTML+=`<div class="dash-bar-row"><div class="dash-bar-label" style="width:50px">${dayLabels[i]}</div><div class="dash-bar-track"><div class="dash-bar-fill green" style="width:${Math.round(dayCounts[i]/maxDay*100)}%"></div></div><div class="dash-bar-val" style="color:#2ecc71">${dayCounts[i]}</div></div>`;
   });
 
-  // ── ДАШБОРД: активность по дням (последние 7 дней) ──
-  const dayLabels = ['Сег','Вчер','2д','3д','4д','5д','6д'];
-  const dayCounts = days7.map(d => all.filter(b => b.date === d && b.status !== 'rejected').length);
-  const maxDay = Math.max(1, ...dayCounts);
-  const dashDays = document.getElementById('dash-days');
-  dashDays.innerHTML = '';
-  days7.forEach((d, i) => {
-    const cnt = dayCounts[i];
-    const pct = Math.round(cnt/maxDay*100);
-    dashDays.innerHTML += `
-      <div class="dash-bar-row">
-        <div class="dash-bar-label" style="width:50px">${dayLabels[i]}</div>
-        <div class="dash-bar-track"><div class="dash-bar-fill green" style="width:${pct}%"></div></div>
-        <div class="dash-bar-val" style="color:#2ecc71">${cnt}</div>
-      </div>`;
-  });
+  const pl=document.getElementById('adm-pending-list'); pl.innerHTML='';
+  if(!pending.length) pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
+  pending.forEach(b=>pl.appendChild(makePCard(b)));
 
-  // ── СПИСКИ ──
-  const pl = document.getElementById('adm-pending-list'); pl.innerHTML='';
-  if(!pendingItems.length){
-    pl.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">✅</div>Нет ожидающих заявок</div>';
-  }
-  pendingItems.forEach(b => pl.appendChild(makePCard(b)));
-
-  const tl2 = document.getElementById('adm-today-list'); tl2.innerHTML='';
-  if(!upcomingItems.length){
-    tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет предстоящих бронирований</div>';
-  }
-  upcomingItems.forEach(b => tl2.appendChild(makeTCard(b)));
+  const tl2=document.getElementById('adm-today-list'); tl2.innerHTML='';
+  if(!upcoming.length) tl2.innerHTML='<div class="empty-st" style="padding:14px"><div class="ei">📅</div>Нет предстоящих бронирований</div>';
+  upcoming.forEach(b=>tl2.appendChild(makeTCard(b)));
 }
 
 function makePCard(b){
-  const el=document.createElement('div');el.className='pending-card';el.id='pc-'+b.id;
+  const el=document.createElement('div'); el.className='pending-card'; el.id='pc-'+b.id;
   el.innerHTML=`
     <div class="pc-head"><span>${b.room_id==='GO_3'?'🏛':'🏢'}</span><span class="pc-room">${b.room_name||b.room_id}</span><span class="pc-id">#${b.id}</span></div>
     <div class="pc-details">📅 <b>${b.date}</b> · ⏰ <b>${b.start_time}–${b.end_time}</b><br>👤 <b>${b.full_name||b.username||'—'}</b> · 📝 ${b.purpose||'—'}</div>
     <div class="pc-btns">
-      <button class="pc-btn pc-ok" onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
-      <button class="pc-btn pc-no" onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
+      <button class="pc-btn pc-ok"   onclick="adminAct(${b.id},'approve',this)">✅ Подтвердить</button>
+      <button class="pc-btn pc-no"   onclick="adminAct(${b.id},'reject',this)">❌ Отклонить</button>
       <button class="pc-btn pc-edit" onclick="openEdit(${b.id},'${b.date}','${b.start_time}','${b.end_time}','${(b.purpose||'').replace(/'/g,"\\'")}')">✏️</button>
     </div>`;
   return el;
 }
 
 function makeTCard(b){
-  const el=document.createElement('div');el.className='bitem';
+  const el=document.createElement('div'); el.className='bitem';
   const sm={approved:'✅ Подтверждено',pending:'⏳ Ожидает',rejected:'❌ Отклонено'};
-  const today = new Date().toISOString().slice(0,10);
-  const dateLabel = b.date === today ? '📅 Сегодня' : '📅 ' + b.date;
+  const today=new Date().toISOString().slice(0,10);
+  const dateLabel=b.date===today?'📅 Сегодня':'📅 '+b.date;
   el.innerHTML=`
     <div class="bi-dot ${b.status}"></div>
     <div class="bi-info">
@@ -1273,108 +1277,45 @@ function makeTCard(b){
   return el;
 }
 
+// ── ДЕЙСТВИЯ АДМИНИСТРАТОРА ────────────────────────────────────────────
 async function adminAct(bid, action, btn){
-  const card = document.getElementById('pc-'+bid);
-
-  // Мгновенный UI отклик
-  if(card){
-    card.style.opacity='.4';
-    card.style.pointerEvents='none';
-    card.style.transition='opacity .2s';
-  }
+  const card=document.getElementById('pc-'+bid);
+  if(card){ card.style.opacity='.4'; card.style.pointerEvents='none'; }
   haptic(action==='approve'?'success':'warning');
 
-  const newStatus = action==='approve' ? 'approved' : 'rejected';
-  const icon  = action==='approve' ? '✅' : '❌';
-  const label = action==='approve' ? 'ПОДТВЕРЖДЕНО' : 'ОТКЛОНЕНО';
-
-  try {
-    // Читаем + обновляем GitHub одним вызовом
-    const {list, sha} = await ghRead();
-    const idx = list.findIndex(b=>b.id===bid);
-    if(idx===-1){ alert('Заявка не найдена'); return; }
-
-    const booking = list[idx];
-    list[idx].status = newStatus;
-
-    // Пишем в GitHub
-    const enc=new TextEncoder(); const byt=enc.encode(JSON.stringify(list,null,2));
-    let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
-    const putResp = await fetch(GH_API,{
-      method:'PUT',
-      headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-      body: JSON.stringify({message:`${newStatus} booking #${bid}`, content:btoa(bin), sha})
-    });
-    if(!putResp.ok) throw new Error('GitHub write error '+putResp.status);
-
-    // Уведомляем пользователя через Bot API
-    if(booking.user_id){
-      const ph = booking.phone ? `\n📞 ${booking.phone}` : '';
-      const msg = `${icon} <b>Ваша заявка #${bid} — ${label}!</b>\n\n🏢 ${booking.room_name}\n📅 ${booking.date}  ⏰ ${booking.start_time}–${booking.end_time}\n📝 ${booking.purpose}${ph}`;
-      fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({chat_id: booking.user_id, text: msg, parse_mode:'HTML'})
-      }).catch(()=>{});
+  try{
+    const res = await apiPost('/api/bookings/'+bid+'/status', {action});
+    if(res.ok){
+      if(card) card.remove();
+      const p=parseInt(document.getElementById('adm-p').textContent)||0;
+      document.getElementById('adm-p').textContent=Math.max(0,p-1);
+      showToast(action==='approve'?'✅ Подтверждено':'❌ Отклонено');
+      _apiCache=null;
+      setTimeout(()=>renderAdminDash(), 1000);
+    } else if(res.status===403){
+      if(card){card.style.opacity='1';card.style.pointerEvents='';}
+      // Фолбэк: отправить через Telegram (закроет WebApp)
+      if(tg && typeof tg.sendData==='function'){
+        if(confirm((action==='approve'?'Подтвердить':'Отклонить')+' заявку #'+bid+'?\nWebApp закроется, бот обработает действие.')){
+          tg.sendData(JSON.stringify({action, bid}));
+        } else { if(card){card.style.opacity='1';card.style.pointerEvents='';} }
+      } else { showToast('Нет прав для этого действия', 3000); if(card){card.style.opacity='1';card.style.pointerEvents='';} }
+    } else {
+      if(card){card.style.opacity='1';card.style.pointerEvents='';}
+      showToast('Ошибка: '+(res.data.error||res.status), 3000);
     }
-
-    // Убираем карточку из списка мгновенно
-    if(card) card.remove();
-    const p = parseInt(document.getElementById('adm-p').textContent)||0;
-    document.getElementById('adm-p').textContent = Math.max(0,p-1);
-
-    // Показываем тост
-    showToast(`${icon} Заявка #${bid} ${label.toLowerCase()}`);
-
-    // Обновляем дашборд в фоне
-    setTimeout(()=>renderAdminDash(), 1500);
-
-  } catch(e){
-    console.error('adminAct error:', e);
-    if(card){card.style.opacity='1'; card.style.pointerEvents='';}
-    alert('Ошибка: '+e.message);
+  }catch(e){
+    if(card){card.style.opacity='1';card.style.pointerEvents='';}
+    // Фолбэк через sendData
+    if(tg && typeof tg.sendData==='function'){
+      if(confirm((action==='approve'?'Подтвердить':'Отклонить')+' заявку #'+bid+'?\nWebApp закроется, бот обработает действие.')){
+        tg.sendData(JSON.stringify({action, bid}));
+      }
+    } else { showToast('Ошибка: '+e.message, 3000); }
   }
 }
 
-async function updateBookingStatus(bid, newStatus){
-  const resp = await fetch(GH_API, {
-    headers:{
-      'Authorization':'token '+GH_TOKEN,
-      'Accept':'application/vnd.github.v3+json'
-    }
-  });
-  if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
-  const meta = await resp.json();
-  const sha = meta.sha;
-  const b64 = meta.content.replace(/\n/g,'');
-  const bytes = new Uint8Array(atob(b64).split('').map(c=>c.charCodeAt(0)));
-  const bookings = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-
-  const idx = bookings.findIndex(b=>b.id===bid);
-  if(idx===-1) throw new Error('Заявка #'+bid+' не найдена');
-  bookings[idx].status = newStatus;
-
-  const content = JSON.stringify(bookings, null, 2);
-  const enc = new TextEncoder();
-  const byt = enc.encode(content);
-  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
-
-  const putResp = await fetch(GH_API, {
-    method:'PUT',
-    headers:{
-      'Authorization':'token '+GH_TOKEN,
-      'Accept':'application/vnd.github.v3+json',
-      'Content-Type':'application/json'
-    },
-    body: JSON.stringify({
-      message: 'Update booking #'+bid+' -> '+newStatus,
-      content: btoa(bin),
-      sha: sha
-    })
-  });
-  if(!putResp.ok) throw new Error('GitHub write error ' + putResp.status);
-}
-
-// ── EDIT MODAL ──
+// ── РЕДАКТИРОВАНИЕ ─────────────────────────────────────────────────────
 function openEdit(bid,date,start,end,purpose){
   document.getElementById('edit-bid').value=bid;
   document.getElementById('edit-date').value=date;
@@ -1383,41 +1324,29 @@ function openEdit(bid,date,start,end,purpose){
   document.getElementById('edit-purpose').value=purpose;
   document.getElementById('edit-modal').classList.add('on');
 }
-function closeModal(){document.getElementById('edit-modal').classList.remove('on')}
+function closeModal(){ document.getElementById('edit-modal').classList.remove('on'); }
 
 async function saveEdit(){
-  const bid  = parseInt(document.getElementById('edit-bid').value);
-  const data = {
-    date:    document.getElementById('edit-date').value,
+  const bid    = parseInt(document.getElementById('edit-bid').value);
+  const fields = {
+    date:       document.getElementById('edit-date').value,
     start_time: document.getElementById('edit-start').value,
     end_time:   document.getElementById('edit-end').value,
     purpose:    document.getElementById('edit-purpose').value,
   };
-  const card = document.getElementById('pc-'+bid);
-  if(card){card.style.opacity='.5';card.style.pointerEvents='none';}
   closeModal(); haptic('success');
-
-  try {
-    const resp = await fetch(GH_API, {
-      headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
-    });
-    const meta = await resp.json();
-    const sha = meta.sha;
-    const b64 = meta.content.replace(/\n/g,'');
-    const bytes = new Uint8Array(atob(b64).split('').map(c=>c.charCodeAt(0)));
-    const bookings = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-    const idx = bookings.findIndex(b=>b.id===bid);
-    if(idx!==-1) Object.assign(bookings[idx], data);
-    const content = JSON.stringify(bookings,null,2);
-    const enc=new TextEncoder(); const byt=enc.encode(content);
-    let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
-    await fetch(GH_API,{method:'PUT',headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},body:JSON.stringify({message:'Edit booking #'+bid,content:btoa(bin),sha})});
-    setTimeout(()=>renderAdminDash(), 1500);
-  } catch(e){ console.error('saveEdit error:',e); }
+  const card=document.getElementById('pc-'+bid);
+  if(card){ card.style.opacity='.5'; card.style.pointerEvents='none'; }
+  try{
+    const res = await apiPatch('/api/bookings/'+bid, fields);
+    _apiCache=null;
+    setTimeout(()=>renderAdminDash(), 800);
+    showToast(res.ok?'✏️ Сохранено':'Ошибка сохранения', 2500);
+  }catch(e){ showToast('Ошибка: '+e.message, 3000); }
 }
 
-// ── NAVIGATION ──
-function btnOk(ok){document.getElementById('btn-main').disabled=!ok}
+// ── НАВИГАЦИЯ ──────────────────────────────────────────────────────────
+function btnOk(ok){ document.getElementById('btn-main').disabled=!ok; }
 
 function btnClick(){
   if(S.view==='home') goView('date');
@@ -1427,14 +1356,14 @@ function btnClick(){
     document.getElementById('cf-dt').textContent=S.dateStr;
     document.getElementById('cf-tm').textContent=SLOTS[S.si]+' – '+SLOTS[S.ei];
     document.getElementById('purpose-in').value='';
-    goView('purpose');btnOk(false);
+    goView('purpose'); btnOk(false);
   }
   else if(S.view==='purpose') submit();
 }
 
 function goBack(){
   const prev={login:'splash',date:'home',time:'date',purpose:'time'};
-  if(prev[S.view])goView(prev[S.view]);
+  if(prev[S.view]) goView(prev[S.view]);
 }
 
 const PROGRESS_MAP={home:15,date:40,time:65,purpose:85,ok:100};
@@ -1444,231 +1373,82 @@ function goView(v){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
   const vm={splash:'sc-splash',login:'sc-login',home:'sc-home',date:'sc-date',time:'sc-time',purpose:'sc-purpose',ok:'sc-ok'};
   document.getElementById(vm[v]).classList.add('on');
-
-  const topbar=document.getElementById('topbar');
-  const pbar=document.getElementById('pbar');
-  const botbar=document.getElementById('botbar');
-  const tabsbar=document.getElementById('tabs-bar');
-  const back=document.getElementById('tb-back');
-
+  const topbar=document.getElementById('topbar'), pbar=document.getElementById('pbar'),
+        botbar=document.getElementById('botbar'), tabsbar=document.getElementById('tabs-bar'),
+        back=document.getElementById('tb-back');
   if(v==='splash'||v==='login'){
-    topbar.style.display='none';pbar.style.display='none';
-    botbar.style.display='none';tabsbar.style.display='none';
-    return;
+    topbar.style.display='none'; pbar.style.display='none';
+    botbar.style.display='none'; tabsbar.style.display='none'; return;
   }
-
-  topbar.style.display='flex';pbar.style.display='block';
+  topbar.style.display='flex'; pbar.style.display='block';
   document.getElementById('pfill').style.width=(PROGRESS_MAP[v]||0)+'%';
-
-  back.classList.toggle('on',v!=='home'&&v!=='ok');
-
+  back.classList.toggle('on', v!=='home'&&v!=='ok');
   const titles={home:S.role==='admin'?'Администратор':'Добро пожаловать',date:'Выбор даты',time:'Выбор времени',purpose:'Детали заявки',ok:'Готово!'};
-  const subs={home:'Hayot Bank',date:S.roomName||'',time:S.dateStr||'',purpose:'Проверьте данные',ok:''};
+  const subs  ={home:'Hayot Bank',date:S.roomName||'',time:S.dateStr||'',purpose:'Проверьте данные',ok:''};
   document.getElementById('tb-t').textContent=titles[v]||'';
   document.getElementById('tb-s').textContent=subs[v]||'';
-
   if(v==='home'){
     tabsbar.style.display='block';
-    if(S.tab==='book'){botbar.style.display='block';btnOk(!!S.roomId)}
+    if(S.tab==='book'){botbar.style.display='block'; btnOk(!!S.roomId);}
     else botbar.style.display='none';
   } else {
     tabsbar.style.display='none';
-    if(v==='ok') botbar.style.display='none';
-    else botbar.style.display='block';
+    botbar.style.display = v==='ok' ? 'none' : 'block';
   }
-
   const btxt={home:'Выбрать дату →',date:'Выбрать время →',time:'К деталям →',purpose:'✅ Отправить заявку'};
   document.getElementById('btn-main').textContent=btxt[v]||'Далее →';
-
-  if(v==='date'){renderCal();if(S.date)renderSchedPanel();btnOk(!!S.date)}
-  if(v==='time'){renderSlots();if(S.si===null)btnOk(false)}
+  if(v==='date'){ renderCal(); if(S.date) renderSchedPanel(); btnOk(!!S.date); }
+  if(v==='time'){ renderSlots(); if(S.si===null) btnOk(false); }
   if(v==='purpose') chkPurpose();
-
   document.querySelector('.page').scrollTop=0;
 }
 
-async function submit(){
-  const purpose = document.getElementById('purpose-in').value.trim();
-  if(!purpose){ alert('Укажите цель встречи'); return; }
-
-  const user = tg?.initDataUnsafe?.user || {};
-  const booking = {
-    room_id:      S.roomId,
-    room_name:    S.roomName,
-    date:         S.date,
-    start_time:   SLOTS[S.si],
-    end_time:     SLOTS[S.ei],
-    purpose:      purpose,
-    participants: String(S_participants),
-    phone:        (document.getElementById('phone-in').value||'').trim(),
-    user_id:      user.id || 0,
-    username:     user.username || '',
-    full_name:    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Сотрудник',
-    status:       'pending',
-    created_at:   new Date(Date.now()+5*3600000).toISOString().slice(0,19).replace('T',' ')
-  };
-
-  // UI подтверждение
-  document.getElementById('ok-card').innerHTML=`
-    <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
-    <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
-    <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
-    <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
-
-  goView('ok');
-  haptic('success');
-
-  try {
-    // ✅ ВСЕГДА пишем напрямую в GitHub
-    const saved = await ghWrite(booking);
-
-    // обновляем данные мгновенно
-    await refreshBooked(true);
-
-    try{ renderCal(); }catch(e){}
-    try{ renderMyBookings(); }catch(e){}
-    if(S.role==='admin') try{ renderAdminDash(); }catch(e){}
-
-    showToast('Заявка #' + saved.id + ' отправлена');
-
-  } catch(e){
-    console.error(e);
-    showToast('Ошибка отправки в GitHub', 3500);
-  }
-}
-
-// ── Запись в GitHub ──
-async function ghWrite(newBooking){
-  const {list, sha} = await ghRead();
-  const maxId = list.reduce((m,b)=>Math.max(m,b.id||0),0);
-  newBooking.id = maxId + 1;
-  list.push(newBooking);
-  const enc = new TextEncoder(); const byt = enc.encode(JSON.stringify(list,null,2));
-  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
-  const putResp = await fetch(GH_API, {
-    method:'PUT',
-    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
-    body: JSON.stringify({message:`booking #${newBooking.id} by ${newBooking.full_name}`, content:btoa(bin), sha})
-  });
-  if(!putResp.ok) throw new Error('GH write '+putResp.status);
-  console.log('✅ Заявка #'+newBooking.id+' сохранена');
-  return newBooking;
-}
-
-// ── Уведомление администраторам с кнопками ──
-async function notifyAdmins(b){
-  const ph = b.phone ? `\n📞 ${b.phone}` : '';
-  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time}–${b.end_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
-  const kb = {inline_keyboard:[[
-    {text:'✅ Подтвердить', callback_data:`approve_${b.id}`},
-    {text:'❌ Отклонить',   callback_data:`reject_${b.id}`}
-  ]]};
-  for(const aid of ADMIN_IDS){
-    try{
-      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({chat_id:aid, text, parse_mode:'HTML', reply_markup:kb})
-      });
-    }catch(e){}
-  }
-}
-
-function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
+// ── УТИЛИТЫ ────────────────────────────────────────────────────────────
+function haptic(t){ try{ if(tg?.HapticFeedback){ if(t==='light') tg.HapticFeedback.impactOccurred('light'); else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning'); } }catch(e){} }
 
 function showToast(msg, dur=2500){
-  let t = document.getElementById('_toast');
-  if(!t){
-    t = document.createElement('div'); t.id='_toast';
+  let t=document.getElementById('_toast');
+  if(!t){ t=document.createElement('div'); t.id='_toast';
     t.style.cssText='position:fixed;bottom:80px;left:50%;transform:translateX(-50%) translateY(20px);background:#1a3a4a;border:1px solid rgba(232,89,58,.4);color:#fff;padding:10px 20px;border-radius:20px;font-size:13px;font-weight:600;z-index:9999;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap';
-    document.body.appendChild(t);
-  }
-  t.textContent = msg;
-  t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
+    document.body.appendChild(t); }
+  t.textContent=msg; t.style.opacity='1'; t.style.transform='translateX(-50%) translateY(0)';
   clearTimeout(t._timer);
-  t._timer = setTimeout(()=>{ t.style.opacity='0'; t.style.transform='translateX(-50%) translateY(20px)'; }, dur);
+  t._timer=setTimeout(()=>{t.style.opacity='0';t.style.transform='translateX(-50%) translateY(20px)';}, dur);
 }
 
-// ── Кэш данных для быстрой загрузки ──
-let _ghCache = null;
-let _ghCacheTime = 0;
-async function fetchBookingsFromGH(forceRefresh=false){
-  const now = Date.now();
-  // Кэш на 30 секунд — мгновенный отклик при повторных открытиях
-  if(!forceRefresh && _ghCache && (now - _ghCacheTime) < 30000){
-    return _ghCache;
-  }
-  const resp = await fetch(GH_RAW + '?t=' + now, {cache:'no-store'});
-  if(!resp.ok) throw new Error('GitHub read error ' + resp.status);
-  _ghCache = await resp.json();
-  _ghCacheTime = now;
-  return _ghCache;
-}
-
-
-async function refreshBooked(force=false){
-  try{
-    const list = await fetchBookingsFromGH(force);
-    // учитываем pending + approved, скрываем rejected
-    S.booked = (Array.isArray(list)?list:[])
-      .filter(b=>b && b.status!=='rejected')
-      .map(b=>({
-        ...b,
-        // нормализуем типы
-        user_id: (b.user_id===undefined||b.user_id===null)?'':String(b.user_id),
-        chat_id: (b.chat_id===undefined||b.chat_id===null)?'':String(b.chat_id),
-        room_id: b.room_id||'',
-      }));
-  }catch(e){
-    S.booked = S.booked || [];
-  }
-}
-
-
-
-
-// ghRead всегда свежие данные (для записи)
-async function ghRead(){
-  const resp = await fetch(GH_API+'?t='+Date.now(), {
-    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json'}
-  });
-  if(!resp.ok) throw new Error('GH read '+resp.status);
-  const meta = await resp.json();
-  const bytes = new Uint8Array(atob(meta.content.replace(/\n/g,'')).split('').map(c=>c.charCodeAt(0)));
-  const list = JSON.parse(new TextDecoder('utf-8').decode(bytes));
-  // Обновляем кэш
-  _ghCache = list; _ghCacheTime = Date.now();
-  return {list, sha: meta.sha};
-}
-
-
-// ── Авто-обновление для админа каждые 30 сек ──
-let _adminTimer = null;
+// ── АВТО-ОБНОВЛЕНИЕ ────────────────────────────────────────────────────
+let _adminTimer=null;
 function startAdminRefresh(){
   if(_adminTimer) clearInterval(_adminTimer);
-  _adminTimer = setInterval(()=>{ if(S.role==='admin'&&S.tab==='admin') renderAdminDash(); }, 30000);
+  _adminTimer=setInterval(()=>{ if(S.role==='admin'&&S.tab==='admin') renderAdminDash(); }, 30000);
 }
 
-
-// ── Авто-обновление бронирований для всех (чтобы статусы/занятость подтягивались без ожидания кэша) ──
-let _userTimer = null;
+let _userTimer=null;
 function startUserRefresh(){
   if(_userTimer) clearInterval(_userTimer);
-  _userTimer = setInterval(async ()=>{
+  _userTimer=setInterval(async ()=>{
     try{
       await refreshBooked(true);
-      // если пользователь на экранах календаря/времени — обновим занятость
       if(S.view==='date'){ renderCal(); if(S.date) renderSchedPanel(); }
-      if(S.view==='time'){ renderSlots(); }
-      // если открыт список "Мои" или админ-даш — обновим
-      try{ renderMyBookings(); }catch(e){}
-      if(S.role==='admin' && S.tab==='admin'){ try{ renderAdminDash(); }catch(e){} }
+      if(S.view==='time') renderSlots();
+      try{ if(S.tab==='my'&&S.view==='home') renderMyBookings(); }catch(e){}
+      if(S.role==='admin'&&S.tab==='admin'){ try{ renderAdminDash(); }catch(e){} }
     }catch(e){}
   }, 15000);
 }
 
+// ── ИНИЦИАЛИЗАЦИЯ ──────────────────────────────────────────────────────
+// Если открываем из Telegram и есть user — автоматически входим как нужная роль
+if(tg && _tgUser.id){
+  // Пропускаем splash, сразу в home
+  // Устанавливаем роль по Telegram ID
+  S.role = IS_ADMIN ? 'admin' : 'guest';
+  if(IS_ADMIN) document.getElementById('tab-admin').style.display='flex';
+}
 
-refreshBooked(true).then(()=>{ try{renderCal();}catch(e){} });
+refreshBooked(true).then(()=>{ try{ renderCal(); }catch(e){} });
 startUserRefresh();
+if(IS_ADMIN) startAdminRefresh();
 
 goView('splash');
 </script>
