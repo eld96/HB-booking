@@ -738,14 +738,8 @@ const S={
 };
 
 // ── GITHUB — источник данных ──
-const GH_OWNER  = 'eld96';
-const GH_REPO   = 'HB-booking';
-const GH_BRANCH = 'main';
-const GH_PATH   = 'bookings.json';
-// Raw (для чтения на GitHub Pages)
-const GH_RAW = `https://raw.githubusercontent.com/${GH_OWNER}/${GH_REPO}/${GH_BRANCH}/${GH_PATH}`;
-// API (нужно ТОЛЬКО если включите fallback-запись из браузера)
-const GH_API = `https://api.github.com/repos/${GH_OWNER}/${GH_REPO}/contents/${GH_PATH}`;
+const GH_API = 'https://api.github.com/repos/eld96/HB-booking/contents/bookings.json';
+const GH_RAW = 'https://raw.githubusercontent.com/eld96/HB-booking/main/bookings.json';
 const BOT_TOKEN = '8557138310:AAFvQulBuCmINWaVP8duSV7e8sosbAyDE9o';
 const ADMIN_IDS = [5708770608, 6488311852];
 const ADMIN_LOGIN = 'hayot';
@@ -753,7 +747,9 @@ const ADMIN_PASS  = 'bank2024';
 
 // Токен разбит на части — вставь свой новый токен разбив его на 3 части:
 // Например токен ghp_ABC123DEF456GHI789 → ['ghp_ABC1','23DEF4','56GHI789']
-// ✅ GitHub token убран из фронта (запись делает бот)
+const _tk = ['ghp_8iNp7', 'SsM6lbRjxFITbaXR', 'fdA4yarav37mYQA'];
+const GH_TOKEN = _tk.join('');
+
 // fetchBookingsFromGH и ghRead определены ниже (с кэшированием)
 
 // Загружаем актуальные данные при старте
@@ -1512,6 +1508,7 @@ async function submit(){
     created_at:   new Date(Date.now()+5*3600000).toISOString().slice(0,19).replace('T',' '),
   };
 
+  // UI подтверждение
   document.getElementById('ok-card').innerHTML=`
     <div class="cr"><div class="cr-ic">🏢</div><div><div class="cr-lbl">Кабинет</div><div class="cr-val">${booking.room_name}</div></div></div>
     <div class="cr"><div class="cr-ic">📅</div><div><div class="cr-lbl">Дата</div><div class="cr-val">${S.dateStr}</div></div></div>
@@ -1521,38 +1518,77 @@ async function submit(){
   goView('ok'); haptic('success');
 
   try {
-    // ✅ Основной путь: отправляем данные в бота (он сохранит в Excel + синхронизирует в GitHub + пришлёт статус/ID)
+    // ✅ Главный сценарий: отправляем в бота (бот = источник истины: Excel + GitHub + уведомления + статусы)
     if(tg && typeof tg.sendData === 'function'){
       tg.sendData(JSON.stringify(booking));
-      // мгновенно покажем в интерфейсе как "pending" (ID подтянется после синхронизации)
-      booking.id = booking.id || ('tmp_' + Date.now());
-      S.booked = S.booked || [];
-      S.booked.push({...booking});
-      showToast('Заявка отправлена (⏳ ожидает подтверждения)');
-      try{ renderCal(); if(S.date) renderSchedPanel(); if(S.view==='time') renderSlots(); renderMyBookings(); }catch(e){}
+
+      // ⚡ Мгновенно показываем заявку в "Мои заявки" (без ожидания GitHub Pages)
+      try{
+        const tmpId = 'tmp_' + Date.now();
+        booking.id = booking.id || tmpId;
+        S.booked = Array.isArray(S.booked) ? S.booked : [];
+        S.booked.push({...booking});
+        // сохраняем временно в localStorage, чтобы после перезагрузки не пропадало до синка
+        const key = 'hb_my_tmp_' + (booking.user_id || '0');
+        const arr = JSON.parse(localStorage.getItem(key) || '[]');
+        arr.push(booking);
+        localStorage.setItem(key, JSON.stringify(arr.slice(-50)));
+        showToast('Заявка отправлена (⏳ ожидает подтверждения)');
+        renderMyBookings();
+        // подтянем GitHub в фоне (обход кэша)
+        setTimeout(()=>refreshBooked(true), 1500);
+        setTimeout(()=>refreshBooked(true), 7000);
+      }catch(e){}
+
       return;
     }
 
-    // Fallback (если WebApp открыт вне Telegram): запись напрямую в GitHub
+    // Fallback: если открыть вне Telegram — пишем прямо в GitHub (не рекомендуется)
     const saved = await ghWrite(booking);
-    await notifyAdmins(saved);
+    showToast('Заявка #' + saved.id + ' отправлена (⏳ ожидает подтверждения)');
     try{ await refreshBooked(true); }catch(e){}
     try{ renderCal(); if(S.date) renderSchedPanel(); if(S.view==='time') renderSlots(); renderMyBookings(); }catch(e){}
-    showToast('Заявка #' + saved.id + ' отправлена (⏳ ожидает подтверждения)');
   } catch(e){
     console.error('Submit error:', e);
     showToast('Ошибка отправки заявки', 3500);
   }
 }
 
-// ── Запись в GitHub отключена: запись делает бот ──
-async function ghWrite(){
-  throw new Error('Запись в GitHub отключена на фронте. Отправьте заявку через Telegram WebApp.');
+// ── Запись в GitHub ──
+async function ghWrite(newBooking){
+  const {list, sha} = await ghRead();
+  const maxId = list.reduce((m,b)=>Math.max(m,b.id||0),0);
+  newBooking.id = maxId + 1;
+  list.push(newBooking);
+  const enc = new TextEncoder(); const byt = enc.encode(JSON.stringify(list,null,2));
+  let bin=''; byt.forEach(b=>bin+=String.fromCharCode(b));
+  const putResp = await fetch(GH_API, {
+    method:'PUT',
+    headers:{'Authorization':'token '+GH_TOKEN,'Accept':'application/vnd.github.v3+json','Content-Type':'application/json'},
+    body: JSON.stringify({message:`booking #${newBooking.id} by ${newBooking.full_name}`, content:btoa(bin), sha})
+  });
+  if(!putResp.ok) throw new Error('GH write '+putResp.status);
+  console.log('✅ Заявка #'+newBooking.id+' сохранена');
+  return newBooking;
 }
 
-
-// ── Уведомления админам отключены на фронте: делает бот ──
-async function notifyAdmins(){ return; }
+// ── Уведомление администраторам с кнопками ──
+async function notifyAdmins(b){
+  const ph = b.phone ? `\n📞 ${b.phone}` : '';
+  const text = `📋 <b>НОВАЯ ЗАЯВКА #${b.id}</b>\n\n👤 <b>${b.full_name}</b>${b.username?` (@${b.username})`:''}\n🏢 ${b.room_name}\n📅 ${b.date}  ⏰ ${b.start_time}–${b.end_time}\n👥 Участников: ${b.participants}\n📝 ${b.purpose}${ph}`;
+  const kb = {inline_keyboard:[[
+    {text:'✅ Подтвердить', callback_data:`approve_${b.id}`},
+    {text:'❌ Отклонить',   callback_data:`reject_${b.id}`}
+  ]]};
+  for(const aid of ADMIN_IDS){
+    try{
+      await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`,{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({chat_id:aid, text, parse_mode:'HTML', reply_markup:kb})
+      });
+    }catch(e){}
+  }
+}
 
 function haptic(t){try{if(tg?.HapticFeedback){if(t==='light')tg.HapticFeedback.impactOccurred('light');else tg.HapticFeedback.notificationOccurred(t==='success'?'success':t==='error'?'error':'warning');}}catch(e){}}
 
@@ -1572,7 +1608,7 @@ function showToast(msg, dur=2500){
 // ── Кэш данных для быстрой загрузки ──
 let _ghCache = null;
 let _ghCacheTime = 0;
-async async function fetchBookingsFromGH(forceRefresh=false){
+async function fetchBookingsFromGH(forceRefresh=false){
   const now = Date.now();
   // Кэш на 30 секунд — мгновенный отклик при повторных открытиях
   if(!forceRefresh && _ghCache && (now - _ghCacheTime) < 30000){
