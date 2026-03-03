@@ -1505,7 +1505,7 @@ async function submit(){
     username:     user.username || '',
     full_name:    [user.first_name, user.last_name].filter(Boolean).join(' ') || user.username || 'Сотрудник',
     status:       'pending',
-    created_at:   new Date(Date.now()+5*3600000).toISOString().slice(0,19).replace('T',' '),
+    created_at:   new Date(Date.now()+5*3600000).toISOString().slice(0,19).replace('T',' ')
   };
 
   // UI подтверждение
@@ -1515,42 +1515,25 @@ async function submit(){
     <div class="cr"><div class="cr-ic">🕐</div><div><div class="cr-lbl">Время</div><div class="cr-val">${booking.start_time} – ${booking.end_time}</div></div></div>
     <div class="cr"><div class="cr-ic">👥</div><div><div class="cr-lbl">Участников</div><div class="cr-val">${booking.participants}</div></div></div>`;
 
-  goView('ok'); haptic('success');
+  goView('ok');
+  haptic('success');
 
   try {
-    // ✅ Главный сценарий: отправляем в бота (бот = источник истины: Excel + GitHub + уведомления + статусы)
-    if(tg && typeof tg.sendData === 'function'){
-      tg.sendData(JSON.stringify(booking));
-
-      // ⚡ Мгновенно показываем заявку в "Мои заявки" (без ожидания GitHub Pages)
-      try{
-        const tmpId = 'tmp_' + Date.now();
-        booking.id = booking.id || tmpId;
-        S.booked = Array.isArray(S.booked) ? S.booked : [];
-        S.booked.push({...booking});
-        // сохраняем временно в localStorage, чтобы после перезагрузки не пропадало до синка
-        const key = 'hb_my_tmp_' + (booking.user_id || '0');
-        const arr = JSON.parse(localStorage.getItem(key) || '[]');
-        arr.push(booking);
-        localStorage.setItem(key, JSON.stringify(arr.slice(-50)));
-        showToast('Заявка отправлена (⏳ ожидает подтверждения)');
-        renderMyBookings();
-        // подтянем GitHub в фоне (обход кэша)
-        setTimeout(()=>refreshBooked(true), 1500);
-        setTimeout(()=>refreshBooked(true), 7000);
-      }catch(e){}
-
-      return;
-    }
-
-    // Fallback: если открыть вне Telegram — пишем прямо в GitHub (не рекомендуется)
+    // ✅ ВСЕГДА пишем напрямую в GitHub
     const saved = await ghWrite(booking);
-    showToast('Заявка #' + saved.id + ' отправлена (⏳ ожидает подтверждения)');
-    try{ await refreshBooked(true); }catch(e){}
-    try{ renderCal(); if(S.date) renderSchedPanel(); if(S.view==='time') renderSlots(); renderMyBookings(); }catch(e){}
+
+    // обновляем данные мгновенно
+    await refreshBooked(true);
+
+    try{ renderCal(); }catch(e){}
+    try{ renderMyBookings(); }catch(e){}
+    if(S.role==='admin') try{ renderAdminDash(); }catch(e){}
+
+    showToast('Заявка #' + saved.id + ' отправлена');
+
   } catch(e){
-    console.error('Submit error:', e);
-    showToast('Ошибка отправки заявки', 3500);
+    console.error(e);
+    showToast('Ошибка отправки в GitHub', 3500);
   }
 }
 
