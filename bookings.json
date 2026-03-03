@@ -7,12 +7,14 @@
     "start_time": "09:30",
     "end_time": "10:30",
     "full_name": "Сотрудник",
-    "username": null,
+    "username": "None",
     "purpose": "Дом",
     "participants": "3",
-    "phone": null,
+    "phone": "None",
     "status": "approved",
-    "created_at": "2026-03-02 15:09:46"
+    "created_at": "2026-03-02 15:09:46",
+    "user_id": "None",
+    "chat_id": "None"
   },
   {
     "id": 2,
@@ -22,12 +24,14 @@
     "start_time": "10:00",
     "end_time": "11:00",
     "full_name": "Сотрудник",
-    "username": null,
+    "username": "None",
     "purpose": "Автоматизация",
     "participants": "4",
     "phone": "903938111",
     "status": "approved",
-    "created_at": "2026-03-02 15:23:14"
+    "created_at": "2026-03-02 15:23:14",
+    "user_id": "None",
+    "chat_id": "None"
   },
   {
     "id": 3,
@@ -37,12 +41,14 @@
     "start_time": "09:30",
     "end_time": "10:30",
     "full_name": "Сотрудник",
-    "username": null,
+    "username": "None",
     "purpose": "Дрм",
     "participants": "3",
-    "phone": null,
+    "phone": "None",
     "status": "approved",
-    "created_at": "2026-03-02 15:30:15"
+    "created_at": "2026-03-02 15:30:15",
+    "user_id": "None",
+    "chat_id": "None"
   },
   {
     "id": 4,
@@ -52,12 +58,14 @@
     "start_time": "10:00",
     "end_time": "11:00",
     "full_name": "Сотрудник",
-    "username": null,
+    "username": "None",
     "purpose": "Risk",
     "participants": "5",
-    "phone": null,
+    "phone": "None",
     "status": "approved",
-    "created_at": "2026-03-02 15:33:03"
+    "created_at": "2026-03-02 15:33:03",
+    "user_id": "None",
+    "chat_id": "None"
   },
   {
     "id": 5,
@@ -67,43 +75,47 @@
     "start_time": "10:00",
     "end_time": "10:30",
     "full_name": "Сотрудник",
-    "username": null,
+    "username": "None",
     "purpose": "Total",
     "participants": "1",
-    "phone": null,
+    "phone": "None",
     "status": "approved",
-    "created_at": "2026-03-02 15:35:55"
+    "created_at": "2026-03-02 15:35:55",
+    "user_id": "None",
+    "chat_id": "None"
   },
   {
+    "id": 6,
     "room_id": "GO_3",
     "room_name": "Переговорная ГО (3 этаж)",
     "date": "2026-03-03",
     "start_time": "09:00",
     "end_time": "10:30",
+    "full_name": "Сотрудник",
+    "username": "None",
     "purpose": "111123",
     "participants": "3",
     "phone": "12121",
-    "user_id": 0,
-    "username": "",
-    "full_name": "Сотрудник",
     "status": "approved",
     "created_at": "2026-03-02 18:46:46",
-    "id": 6
+    "user_id": "0",
+    "chat_id": "None"
   },
   {
+    "id": 7,
     "room_id": "GO_3",
     "room_name": "Переговорная ГО (3 этаж)",
     "date": "2026-03-04",
     "start_time": "10:00",
     "end_time": "12:00",
+    "full_name": "Сотрудник",
+    "username": "None",
     "purpose": "риск",
     "participants": "6+",
-    "phone": "",
-    "user_id": 0,
-    "username": "",
-    "full_name": "Сотрудник",
+    "phone": "None",
     "status": "pending",
     "created_at": "2026-03-02 18:50:28",
-    "id": 7
+    "user_id": "0",
+    "chat_id": "None"
   }
 ]
